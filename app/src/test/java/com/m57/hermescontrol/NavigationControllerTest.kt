@@ -67,31 +67,40 @@ class NavigationControllerTest {
     // ── Primary-screen behaviour: resets stack to [ChatScreen, Target] ───────
 
     @Test
-    fun `navigateTo on a different primary screen resets stack with ChatScreen as root`() {
-        val backStack = NavBackStack<NavKey>(ChatScreen)
+    fun `navigateTo on a different primary screen resets stack with Bots home as root`() {
+        val backStack = NavBackStack<NavKey>(BotsScreen)
         NavigationController.backStack = backStack
 
         NavigationController.navigateTo(SkillsScreen)
         assertEquals(2, backStack.size)
-        assertEquals(ChatScreen, backStack.firstOrNull())
+        assertEquals(BotsScreen, backStack.firstOrNull())
         assertEquals(SkillsScreen, backStack.lastOrNull())
 
         // Now navigate to another primary screen (e.g. ProfilesScreen)
         NavigationController.navigateTo(ProfilesScreen)
-        assertEquals("primary screen navigation should reset stack to [ChatScreen, target]", 2, backStack.size)
-        assertEquals(ChatScreen, backStack.firstOrNull())
+        assertEquals("primary screen navigation should reset stack to [BotsScreen, target]", 2, backStack.size)
+        assertEquals(BotsScreen, backStack.firstOrNull())
         assertEquals(ProfilesScreen, backStack.lastOrNull())
     }
 
     @Test
-    fun `navigateTo ChatScreen clears stack to single ChatScreen root`() {
-        val backStack = NavBackStack<NavKey>(ChatScreen, ProfilesScreen)
+    fun `navigateTo ChatScreen sits on top of the Bots home`() {
+        val backStack = NavBackStack<NavKey>(BotsScreen, ProfilesScreen)
         NavigationController.backStack = backStack
 
         NavigationController.navigateTo(ChatScreen)
 
-        assertEquals("chat navigation should result in single root entry", 1, backStack.size)
-        assertEquals(ChatScreen, backStack.lastOrNull())
+        assertEquals(listOf<NavKey>(BotsScreen, ChatScreen), backStack.toList())
+    }
+
+    @Test
+    fun `navigateTo BotsScreen clears stack to the home root`() {
+        val backStack = NavBackStack<NavKey>(BotsScreen, ChatScreen)
+        NavigationController.backStack = backStack
+
+        NavigationController.navigateTo(BotsScreen)
+
+        assertEquals(listOf<NavKey>(BotsScreen), backStack.toList())
     }
 
     // ── Subscreen behaviour: appends to stack ───────────────────────────────
@@ -211,14 +220,14 @@ class NavigationControllerTest {
     }
 
     @Test
-    fun `goBack on root ChatScreen keeps ChatScreen`() {
-        val backStack = NavBackStack<NavKey>(ChatScreen)
+    fun `goBack on root Bots home keeps it`() {
+        val backStack = NavBackStack<NavKey>(BotsScreen)
         NavigationController.backStack = backStack
 
         NavigationController.goBack()
 
         assertEquals(1, backStack.size)
-        assertEquals(ChatScreen, backStack.lastOrNull())
+        assertEquals(BotsScreen, backStack.lastOrNull())
     }
 
     @Test
@@ -229,7 +238,7 @@ class NavigationControllerTest {
         NavigationController.goBack()
 
         assertEquals(1, backStack.size)
-        assertEquals("default fallback should be ChatScreen", ChatScreen, backStack.lastOrNull())
+        assertEquals("default fallback should be the Bots home", BotsScreen, backStack.lastOrNull())
     }
 
     @Test

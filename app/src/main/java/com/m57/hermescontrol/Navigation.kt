@@ -87,7 +87,7 @@ private fun appEntryProvider(
     entry<AuthLoginScreen> {
         AuthLoginScreenContent(
             onConnected = {
-                NavigationController.resetTo(ChatScreen)
+                NavigationController.resetTo(NavigationController.HomeScreen)
             },
             onBack = {
                 NavigationController.goBack()
@@ -189,9 +189,21 @@ private fun appEntryProvider(
 fun MainNavigation(sessionId: String? = null) {
     val token by AuthManager.tokenFlow.collectAsState()
     val hasToken = !token.isNullOrBlank()
-    val startScreen: NavKey = if (hasToken) ChatScreen else LandingScreen
+    val startScreen: NavKey = if (hasToken) NavigationController.HomeScreen else LandingScreen
 
-    val backStack = remember(startScreen) { NavBackStack(startScreen) }
+    val backStack =
+        remember(startScreen) {
+            // A cold start from a chat notification queues the request before the stack exists;
+            // open Chat on top of the Bots home so the request is consumed straight away.
+            val chatPending =
+                NavigationController.pendingChatNavigation != null ||
+                    NavigationController.pendingNewChatNavigation != null
+            if (startScreen == NavigationController.HomeScreen && chatPending) {
+                NavBackStack(startScreen, ChatScreen)
+            } else {
+                NavBackStack(startScreen)
+            }
+        }
     NavigationController.backStack = backStack
 
     val currentScreen = backStack.lastOrNull() ?: startScreen
@@ -215,8 +227,8 @@ fun MainNavigation(sessionId: String? = null) {
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
     val backToastText = stringResource(R.string.press_back_again_to_exit)
 
-    // Double-back to exit on root ChatScreen
-    BackHandler(enabled = currentScreen == ChatScreen && backStack.size == 1) {
+    // Double-back to exit on the root Bots home
+    BackHandler(enabled = currentScreen == NavigationController.HomeScreen && backStack.size == 1) {
         val now = System.currentTimeMillis()
         if (now - lastBackPressTime < 2000L) {
             (context as? Activity)?.finish()
@@ -226,9 +238,12 @@ fun MainNavigation(sessionId: String? = null) {
         }
     }
 
-    // Safety fallback: if a non-chat screen somehow sits alone on stack, swipe back returns to ChatScreen
+    // Safety fallback: if a non-home screen somehow sits alone on stack, swipe back returns home
     BackHandler(
-        enabled = currentScreen != ChatScreen && currentScreen != LandingScreen && backStack.size == 1,
+        enabled =
+            currentScreen != NavigationController.HomeScreen &&
+                currentScreen != LandingScreen &&
+                backStack.size == 1,
     ) {
         NavigationController.goBack()
     }
