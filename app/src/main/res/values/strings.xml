@@ -153,8 +153,10 @@
     <string name="fleet_send_back">Send back</string>
     <string name="fleet_stat_working">%1$d working</string>
     <string name="fleet_stat_needs_you">%1$d need you</string>
-    <string name="fleet_stat_done">%1$d done today</string>
+    <string name="fleet_stat_done">%1$d done</string>
     <string name="fleet_demo_data">DEMO DATA</string>
+    <string name="fleet_live_data">LIVE</string>
+    <string name="fleet_retry_live">Retry live</string>
     <string name="fleet_col_queued">Queued</string>
     <string name="fleet_col_working">Working</string>
     <string name="fleet_col_needs_you">Needs you</string>

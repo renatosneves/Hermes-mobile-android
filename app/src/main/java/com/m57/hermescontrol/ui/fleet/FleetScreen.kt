@@ -102,7 +102,7 @@ fun FleetScreen(
         title = { Text(stringResource(R.string.screen_fleet)) },
         navigationIcon = onOpenDrawer?.let { NavIcon.Menu(it) },
         actions = {
-            TextButton(onClick = viewModel::cycleSpeed) { Text("${state.speed}×") }
+            if (state.isDemo) TextButton(onClick = viewModel::cycleSpeed) { Text("${state.speed}×") }
             IconButton(onClick = viewModel::togglePause) {
                 Icon(
                     imageVector = if (state.isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
@@ -137,13 +137,13 @@ private fun UnfoldedLayout(
             .padding(spacing.md),
         verticalArrangement = Arrangement.spacedBy(spacing.md),
     ) {
-        StatsRow(state)
+        StatsRow(state, viewModel::retryLive)
         Row(horizontalArrangement = Arrangement.spacedBy(spacing.md)) {
             Panel(Modifier.weight(1f), stringResource(R.string.fleet_delegation)) {
                 DelegationMap(state.snapshot, state.speed, state.isPaused)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(spacing.md)) {
-                NeedsYouPanel(state.snapshot, viewModel::approve, viewModel::sendBack)
+                NeedsYouPanel(state.snapshot, state.isDemo, viewModel::approve, viewModel::sendBack)
                 Panel(Modifier.fillMaxWidth(), stringResource(R.string.fleet_live)) {
                     LiveFeed(state.snapshot, maxItems = 9)
                 }
@@ -196,7 +196,7 @@ private fun CoverLayout(
                 .padding(spacing.md),
             verticalArrangement = Arrangement.spacedBy(spacing.md),
         ) {
-            StatsRow(state)
+            StatsRow(state, viewModel::retryLive)
             when (CoverTab.entries[tab]) {
                 CoverTab.LIVE -> {
                     DelegationMap(state.snapshot, state.speed, state.isPaused)
@@ -211,7 +211,7 @@ private fun CoverLayout(
                 }
 
                 CoverTab.YOU -> {
-                    NeedsYouPanel(state.snapshot, viewModel::approve, viewModel::sendBack)
+                    NeedsYouPanel(state.snapshot, state.isDemo, viewModel::approve, viewModel::sendBack)
                 }
             }
         }
@@ -219,7 +219,10 @@ private fun CoverLayout(
 }
 
 @Composable
-private fun StatsRow(state: FleetUiState) {
+private fun StatsRow(
+    state: FleetUiState,
+    onRetryLive: () -> Unit,
+) {
     val status = LocalHermesStatusColors.current
     val snap = state.snapshot
     val working = snap.inColumn(FleetColumn.WORKING).size
@@ -229,20 +232,33 @@ private fun StatsRow(state: FleetUiState) {
         StatChip(stringResource(R.string.fleet_stat_needs_you, waiting), status.warning, emphasised = waiting > 0)
         StatChip(stringResource(R.string.fleet_stat_done, snap.doneToday), status.success)
         if (state.isDemo) {
-            Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = Color.Transparent,
-                border = BorderStroke(1.dp, status.warning.copy(alpha = 0.6f)),
-            ) {
-                Text(
-                    stringResource(R.string.fleet_demo_data),
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = status.warning,
-                )
+            ModeChip(stringResource(R.string.fleet_demo_data), status.warning)
+            if (state.liveError != null) {
+                TextButton(onClick = onRetryLive) { Text(stringResource(R.string.fleet_retry_live)) }
             }
+        } else {
+            ModeChip(stringResource(R.string.fleet_live_data), status.success)
         }
+    }
+}
+
+@Composable
+private fun ModeChip(
+    label: String,
+    color: Color,
+) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, color.copy(alpha = 0.6f)),
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontFamily = FontFamily.Monospace,
+            color = color,
+        )
     }
 }
 
@@ -301,6 +317,7 @@ private fun Panel(
 @Composable
 private fun NeedsYouPanel(
     snapshot: FleetSnapshot,
+    interactive: Boolean,
     onApprove: (Long) -> Unit,
     onSendBack: (Long) -> Unit,
 ) {
@@ -320,7 +337,7 @@ private fun NeedsYouPanel(
         }
         waiting.forEach { task ->
             androidx.compose.runtime.key(task.id) {
-                AskCard(task, snapshot.bot(task.owner), warning, onApprove, onSendBack)
+                AskCard(task, snapshot.bot(task.owner), warning, interactive, onApprove, onSendBack)
             }
         }
     }
@@ -331,6 +348,7 @@ private fun AskCard(
     task: FleetTask,
     bot: FleetBot?,
     warning: Color,
+    interactive: Boolean,
     onApprove: (Long) -> Unit,
     onSendBack: (Long) -> Unit,
 ) {
@@ -370,16 +388,18 @@ private fun AskCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = { onApprove(task.id) },
-                    colors =
-                        ButtonDefaults.buttonColors(
-                            containerColor = warning,
-                            contentColor = LocalHermesStatusColors.current.onWarning,
-                        ),
-                ) { Text(ask.action.substringBefore(' ')) }
-                OutlinedButton(onClick = { onSendBack(task.id) }) { Text(stringResource(R.string.fleet_send_back)) }
+            if (interactive) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { onApprove(task.id) },
+                        colors =
+                            ButtonDefaults.buttonColors(
+                                containerColor = warning,
+                                contentColor = LocalHermesStatusColors.current.onWarning,
+                            ),
+                    ) { Text(ask.action.substringBefore(' ')) }
+                    OutlinedButton(onClick = { onSendBack(task.id) }) { Text(stringResource(R.string.fleet_send_back)) }
+                }
             }
         }
     }
@@ -601,13 +621,21 @@ private fun TaskCard(
                 }
                 when (task.column) {
                     FleetColumn.WORKING -> {
-                        LinearProgressIndicator(
-                            progress = { task.progress },
-                            modifier = Modifier.fillMaxWidth().height(3.dp),
-                            color = hue,
-                            trackColor = MaterialTheme.colorScheme.surfaceContainerLowest,
-                            drawStopIndicator = {},
-                        )
+                        if (task.progress < 0f) {
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth().height(3.dp),
+                                color = hue,
+                                trackColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                progress = { task.progress },
+                                modifier = Modifier.fillMaxWidth().height(3.dp),
+                                color = hue,
+                                trackColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+                                drawStopIndicator = {},
+                            )
+                        }
                     }
 
                     FleetColumn.NEEDS_YOU -> {
