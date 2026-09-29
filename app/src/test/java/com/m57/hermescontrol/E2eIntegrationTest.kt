@@ -735,18 +735,18 @@ class E2eIntegrationTest {
         NavigationController.navigateTo(SkillsScreen)
         assertEquals(SkillsScreen, backStack.lastOrNull())
         assertEquals(2, backStack.size)
-        assertEquals(ChatScreen, backStack[0])
+        assertEquals(BotsScreen, backStack[0])
 
         NavigationController.navigateTo(CronJobsScreen)
         assertEquals(CronJobsScreen, backStack.lastOrNull())
         assertEquals(2, backStack.size)
-        assertEquals(ChatScreen, backStack[0])
+        assertEquals(BotsScreen, backStack[0])
 
-        // Drawer screen navigation always roots on ChatScreen
+        // Drawer screen navigation always roots on the Bots home
         NavigationController.navigateTo(ProfilesScreen)
         assertEquals(ProfilesScreen, backStack.lastOrNull())
         assertEquals(2, backStack.size)
-        assertEquals(ChatScreen, backStack[0])
+        assertEquals(BotsScreen, backStack[0])
     }
 
     // ── Tier 2: Boundary & Corner Cases (>=5 per feature) ────────────────

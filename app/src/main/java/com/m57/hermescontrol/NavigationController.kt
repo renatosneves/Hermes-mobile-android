@@ -28,6 +28,9 @@ data class PendingNewChatNavigation(
  * entries that compete for touch events.
  */
 object NavigationController {
+    /** Root of the app: the Grok-style Bots screen (bot list, with the chat beside it when unfolded). */
+    val HomeScreen: NavKey = BotsScreen
+
     var backStack: NavBackStack<NavKey>? = null
     var pendingChatNavigation: PendingChatNavigation? by mutableStateOf(null)
         private set
@@ -40,8 +43,8 @@ object NavigationController {
 
     /**
      * Top-level primary screens (all drawer-accessible screens).
-     * Navigating to any of these clears the stack to `[ChatScreen, key]` (or `[ChatScreen]` for Chat),
-     * ensuring swiping back returns to ChatScreen.
+     * Navigating to any of these clears the stack to `[HomeScreen, key]` (or `[HomeScreen]` for home),
+     * ensuring swiping back returns to the Bots home.
      */
     fun isPrimaryScreen(key: NavKey): Boolean = key == ChatScreen || ScreenRegistry.ALL_SCREENS.any { it.key == key }
 
@@ -49,9 +52,9 @@ object NavigationController {
         val stack = backStack ?: return
         if (stack.lastOrNull() == key) return
 
-        if (key == ChatScreen) {
+        if (key == HomeScreen) {
             stack.clear()
-            stack.add(ChatScreen)
+            stack.add(HomeScreen)
             return
         }
 
@@ -63,7 +66,7 @@ object NavigationController {
 
         if (isPrimaryScreen(key)) {
             stack.clear()
-            stack.add(ChatScreen)
+            stack.add(HomeScreen)
             stack.add(key)
             return
         }
@@ -121,7 +124,7 @@ object NavigationController {
      * Navigate back one step, or fall back to [fallback] when the stack has only one item.
      * Never leaves the stack empty.
      */
-    fun goBack(fallback: NavKey = ChatScreen) {
+    fun goBack(fallback: NavKey = HomeScreen) {
         val stack = backStack ?: return
         if (stack.size > 1) {
             stack.removeLastOrNull()
