@@ -1,6 +1,7 @@
-# Hermes Fleet APK builds
+# Hermes APK builds
 
 Debug builds for sideloading on the Fold. Not signed for release.
 
-- `hermes-fleet-live-debug-2026-09-29.apk` (latest): Fleet screen on live Kanban data (PR #2).
+- `hermes-grok-bots-debug-2026-09-29.apk` (latest): Grok-style Bots home, list left and chat right when unfolded; Fleet removed (PR #3).
+- `hermes-fleet-live-debug-2026-09-29.apk`: Fleet screen on live Kanban data (PR #2).
 - `hermes-fleet-debug-2026-09-29.apk`: first build, demo data only.
