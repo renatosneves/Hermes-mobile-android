@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.HistoryEdu
+import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Memory
@@ -42,6 +43,7 @@ import com.m57.hermescontrol.ui.config.ConfigScreen as ConfigScreenContent
 import com.m57.hermescontrol.ui.connectors.AccountConnectorsScreen as AccountConnectorsScreenContent
 import com.m57.hermescontrol.ui.cron.CronJobsScreen as CronJobsScreenContent
 import com.m57.hermescontrol.ui.files.FilesScreen as FilesScreenContent
+import com.m57.hermescontrol.ui.fleet.FleetScreen as FleetScreenContent
 import com.m57.hermescontrol.ui.gateway.GatewayScreen as GatewayScreenContent
 import com.m57.hermescontrol.ui.kanban.KanbanScreen as KanbanScreenContent
 import com.m57.hermescontrol.ui.keys.KeysScreen as KeysScreenContent
@@ -99,6 +101,12 @@ object ScreenRegistry {
                 Icons.Filled.AccountCircle,
                 DrawerSection.CONVERSE,
             ) { sessionId, openDrawer -> ProfilesScreenContent(onOpenDrawer = openDrawer) },
+            ScreenDefinition(
+                FleetScreen,
+                R.string.screen_fleet,
+                Icons.Filled.Hub,
+                DrawerSection.CONVERSE,
+            ) { sessionId, openDrawer -> FleetScreenContent(onOpenDrawer = openDrawer) },
             ScreenDefinition(
                 BotsScreen,
                 R.string.screen_bots,
