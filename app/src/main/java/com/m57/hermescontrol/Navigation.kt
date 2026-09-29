@@ -191,7 +191,19 @@ fun MainNavigation(sessionId: String? = null) {
     val hasToken = !token.isNullOrBlank()
     val startScreen: NavKey = if (hasToken) NavigationController.HomeScreen else LandingScreen
 
-    val backStack = remember(startScreen) { NavBackStack(startScreen) }
+    val backStack =
+        remember(startScreen) {
+            // A cold start from a chat notification queues the request before the stack exists;
+            // open Chat on top of the Bots home so the request is consumed straight away.
+            val chatPending =
+                NavigationController.pendingChatNavigation != null ||
+                    NavigationController.pendingNewChatNavigation != null
+            if (startScreen == NavigationController.HomeScreen && chatPending) {
+                NavBackStack(startScreen, ChatScreen)
+            } else {
+                NavBackStack(startScreen)
+            }
+        }
     NavigationController.backStack = backStack
 
     val currentScreen = backStack.lastOrNull() ?: startScreen

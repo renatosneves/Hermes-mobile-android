@@ -53,6 +53,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -80,6 +81,7 @@ import com.m57.hermescontrol.ui.common.BotAvatar
 import com.m57.hermescontrol.ui.common.EmptyState
 import com.m57.hermescontrol.ui.common.ErrorState
 import com.m57.hermescontrol.ui.common.HermesScaffold
+import com.m57.hermescontrol.ui.common.LocalDrawerGestureController
 import com.m57.hermescontrol.ui.common.NavIcon
 import com.m57.hermescontrol.ui.common.SkeletonListState
 import com.m57.hermescontrol.ui.common.ToastEffect
@@ -137,11 +139,15 @@ fun BotsScreen(
                     onOpenBot = onOpenBot,
                 )
                 VerticalDivider()
-                ChatScreen(
-                    modifier = Modifier.weight(0.62f).fillMaxHeight().testTag("bots_chat_pane"),
-                    onOpenDrawer = null,
-                    sessionId = chatSessionId,
-                )
+                // The list pane owns drawer gestures for this screen; the embedded chat must not
+                // reconcile its own preference over it (issue #619).
+                CompositionLocalProvider(LocalDrawerGestureController provides null) {
+                    ChatScreen(
+                        modifier = Modifier.weight(0.62f).fillMaxHeight().testTag("bots_chat_pane"),
+                        onOpenDrawer = null,
+                        sessionId = chatSessionId,
+                    )
+                }
             }
         } else {
             BotsListPane(
