@@ -6,13 +6,13 @@ import android.media.AudioManager
 import android.os.Build
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -33,12 +33,14 @@ import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
 import org.webrtc.audio.JavaAudioDeviceModule
 import java.nio.ByteBuffer
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-/** What the live voice session reports back. Called on WebRTC threads. */
+/** What the live voice session reports back. Called on background threads, never the main one. */
 interface VoiceLiveListener {
     fun onStarted()
 
@@ -81,16 +83,33 @@ class VoiceLiveTransport(
     private var previousAudioMode = AudioManager.MODE_NORMAL
     private val json = Json { ignoreUnknownKeys = true }
 
+    /**
+     * Every WebRTC call runs on this one thread. Its Java API blocks the caller until WebRTC's own
+     * threads answer, so calls from the main thread could freeze the app, and a send or stats
+     * poll racing the teardown on another thread could touch a connection being disposed.
+     */
+    private val rtcExecutor = Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "voice-rtc") }
+    private val rtc = rtcExecutor.asCoroutineDispatcher()
+
     @Volatile var sessionId: String? = null
         private set
 
-    val connected: Boolean get() = events?.state() == DataChannel.State.OPEN
+    /** Runs [block] on the WebRTC thread; ignored once the session is torn down. */
+    private fun onRtc(block: () -> Unit) {
+        try {
+            rtcExecutor.execute { runCatching(block) }
+        } catch (_: RejectedExecutionException) {
+            // Already shut down: nothing left to talk to.
+        }
+    }
 
     /**
      * Opens the microphone and negotiates the session. [exchangeOffer] posts our SDP offer to
      * Hermes and returns the answer SDP (or throws).
      */
-    suspend fun start(exchangeOffer: suspend (String) -> String) {
+    suspend fun start(exchangeOffer: suspend (String) -> String) = withContext(rtc) { startOnRtc(exchangeOffer) }
+
+    private suspend fun startOnRtc(exchangeOffer: suspend (String) -> String) {
         check(peer == null) { "GPT-Live session already started" }
         ensureInitialised(context)
         routeAudioForCall()
@@ -150,7 +169,7 @@ class VoiceLiveTransport(
         content: String,
     ) {
         val text = content.trim().take(VoiceLivePlanner.APPEND_CHAR_LIMIT)
-        if (text.isNotEmpty()) send("session.thinking.append", delegationId, text, "think")
+        if (text.isNotEmpty()) onRtc { send("session.thinking.append", delegationId, text, "think") }
     }
 
     /** A result the voice should say aloud (it paraphrases). */
@@ -158,28 +177,34 @@ class VoiceLiveTransport(
         delegationId: String?,
         content: String,
     ) {
-        for (chunk in VoiceLivePlanner.chunkForCommentary(content)) {
-            send("session.commentary.append", delegationId, chunk, "say")
-        }
+        val chunks = VoiceLivePlanner.chunkForCommentary(content)
+        onRtc { chunks.forEach { send("session.commentary.append", delegationId, it, "say") } }
     }
 
     /** Steers the voice for the rest of the conversation. */
     fun instruct(content: String) {
         val text = content.trim().take(VoiceLivePlanner.APPEND_CHAR_LIMIT)
-        if (text.isNotEmpty()) send("session.instructions.append", null, text, "instr")
+        if (text.isNotEmpty()) onRtc { send("session.instructions.append", null, text, "instr") }
     }
 
-    fun setMuted(muted: Boolean) {
-        micTrack?.setEnabled(!muted)
-        sendRaw(
-            JsonObject(
-                mapOf(
-                    "type" to JsonPrimitive(if (muted) "session.input_audio.mute" else "session.input_audio.unmute"),
-                    "event_id" to JsonPrimitive(nextEventId(if (muted) "mute" else "unmute")),
+    fun setMuted(muted: Boolean) =
+        onRtc {
+            // Silence the recorder itself as well as the track: a disabled track alone did not
+            // stop the voice hearing you on some phones.
+            audioModule?.setMicrophoneMute(muted)
+            micTrack?.setEnabled(!muted)
+            sendRaw(
+                JsonObject(
+                    mapOf(
+                        "type" to
+                            JsonPrimitive(
+                                if (muted) "session.input_audio.mute" else "session.input_audio.unmute",
+                            ),
+                        "event_id" to JsonPrimitive(nextEventId(if (muted) "mute" else "unmute")),
+                    ),
                 ),
-            ),
-        )
-    }
+            )
+        }
 
     /** Immediate teardown, for a start that failed half way. */
     fun abort(reason: String = "start_failed") = finish(reason, null)
@@ -187,15 +212,16 @@ class VoiceLiveTransport(
     /** Graceful close: ask for `session.closed`, tear down after it (or a timeout). */
     fun close() {
         if (finalized.get()) return
-        if (!sendRaw(JsonObject(mapOf("type" to JsonPrimitive("session.close"))))) {
-            finish("close_requested", null)
-            return
-        }
         closeJob =
             scope.launch {
                 delay(CLOSE_TIMEOUT_MS)
                 finish("close_requested", null)
             }
+        onRtc {
+            if (!finalized.get() && !sendRaw(JsonObject(mapOf("type" to JsonPrimitive("session.close"))))) {
+                finish("close_requested", null)
+            }
+        }
     }
 
     private fun send(
@@ -216,7 +242,9 @@ class VoiceLiveTransport(
         )
     }
 
+    /** Only on the WebRTC thread (see [rtc]). */
     private fun sendRaw(event: JsonObject): Boolean {
+        if (finalized.get()) return false
         val channel = events ?: return false
         if (channel.state() != DataChannel.State.OPEN) return false
         val bytes = event.toString().toByteArray(Charsets.UTF_8)
@@ -274,7 +302,10 @@ class VoiceLiveTransport(
                 var lastSpeaking = false
                 var quietTicks = 0
                 while (isActive && !finalized.get()) {
-                    val level = connection.inboundAudioLevel()
+                    val level =
+                        withTimeoutOrNull(STATS_TIMEOUT_MS) {
+                            withContext(rtc) { if (finalized.get()) null else connection.inboundAudioLevel() }
+                        }
                     val loud = (level ?: 0.0) > SPEAKING_LEVEL
                     quietTicks = if (loud) 0 else quietTicks + 1
                     val speaking = loud || (lastSpeaking && quietTicks < QUIET_TICKS_TO_STOP)
@@ -294,8 +325,16 @@ class VoiceLiveTransport(
         if (!finalized.compareAndSet(false, true)) return
         closeJob?.cancel()
         speakingJob?.cancel()
-        // Never dispose a PeerConnection from its own callback thread (it deadlocks).
-        scope.launch(Dispatchers.IO + NonCancellable) { teardown(reason, usageSeconds) }
+        // Never dispose a PeerConnection from its own callback thread (it deadlocks): the WebRTC
+        // thread runs it after anything already queued, so nothing else touches it meanwhile.
+        try {
+            rtcExecutor.execute {
+                runCatching { teardown(reason, usageSeconds) }
+                rtcExecutor.shutdown()
+            }
+        } catch (_: RejectedExecutionException) {
+            listener.onClosed(reason, usageSeconds)
+        }
     }
 
     private fun teardown(
@@ -410,6 +449,7 @@ class VoiceLiveTransport(
         private const val SPEAKING_POLL_MS = 150L
         private const val SPEAKING_LEVEL = 0.02
         private const val QUIET_TICKS_TO_STOP = 4
+        private const val STATS_TIMEOUT_MS = 1_000L
 
         @Volatile private var initialised = false
 

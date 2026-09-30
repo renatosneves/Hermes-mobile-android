@@ -298,7 +298,9 @@ class VoiceLiveController(
                     val last = transcript.getOrNull(transcript.size - 2)
                     _ui.update {
                         it.copy(
-                            userCaption = if (last?.fromUser == true) it.userCaption + fragment.text else fragment.text,
+                            userCaption =
+                                (if (last?.fromUser == true) it.userCaption + fragment.text else fragment.text)
+                                    .takeLast(CAPTION_MAX_CHARS),
                         )
                     }
                     // Judge a spoken "stop" once the utterance settles ("stop the container" is a request).
@@ -316,13 +318,8 @@ class VoiceLiveController(
                     _ui.update {
                         it.copy(
                             voiceCaption =
-                                if (last?.fromUser ==
-                                    false
-                                ) {
-                                    it.voiceCaption + fragment.text
-                                } else {
-                                    fragment.text
-                                },
+                                (if (last?.fromUser == false) it.voiceCaption + fragment.text else fragment.text)
+                                    .takeLast(CAPTION_MAX_CHARS),
                         )
                     }
                 }
@@ -374,5 +371,6 @@ class VoiceLiveController(
         const val FEED_TICK_MS = 200L
         const val SUBMIT_SETTLE_GRACE_MS = 15_000L
         const val UTTERANCE_SETTLE_MS = 1_500L
+        const val CAPTION_MAX_CHARS = 600
     }
 }

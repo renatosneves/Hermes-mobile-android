@@ -1,7 +1,9 @@
 package com.m57.hermescontrol.ui.chat
 
 import android.content.Context
+import android.util.Log
 import com.m57.hermescontrol.voice.VoiceLiveController
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -14,6 +16,8 @@ import kotlinx.coroutines.flow.asStateFlow
  * screens, and a call owned by one of them used to hang up with it.
  */
 object VoiceLiveCalls {
+    private const val TAG = "VoiceLiveCalls"
+
     class Call(
         val owner: ChatViewModel,
         val controller: VoiceLiveController,
@@ -23,7 +27,14 @@ object VoiceLiveCalls {
         val minimised: Boolean = false,
     )
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    // A failure inside the call ends the call; it must never take the whole app down with it.
+    private val failureHandler =
+        CoroutineExceptionHandler { _, error ->
+            Log.w(TAG, "Voice call failed", error)
+            _active.value?.controller?.dispose()
+            _active.value = null
+        }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate + failureHandler)
     private val _active = MutableStateFlow<Call?>(null)
     val active: StateFlow<Call?> = _active.asStateFlow()
 
