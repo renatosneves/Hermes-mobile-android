@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- GPT-Live voice: route the call-style audio to the speaker. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <queries>

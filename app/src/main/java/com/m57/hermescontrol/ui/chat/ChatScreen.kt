@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
@@ -117,6 +118,7 @@ import com.m57.hermescontrol.ui.chat.components.SpeechRequest
 import com.m57.hermescontrol.ui.chat.components.SpeechText
 import com.m57.hermescontrol.ui.chat.components.SubagentInspectionSheet
 import com.m57.hermescontrol.ui.chat.components.TaskProgressChip
+import com.m57.hermescontrol.ui.chat.components.VoiceLiveOverlay
 import com.m57.hermescontrol.ui.chat.components.rememberChatMediaLaunchers
 import com.m57.hermescontrol.ui.chat.components.rememberChatScrollController
 import com.m57.hermescontrol.ui.chat.components.rememberChatSpeech
@@ -468,6 +470,15 @@ fun ChatScreen(
         isOverlayActive = !isChatContentReadable,
     )
 
+    var showVoiceLive by remember { mutableStateOf(false) }
+    if (showVoiceLive) {
+        VoiceLiveOverlay(
+            viewModel = viewModel,
+            title = state.chatTitle.ifBlank { "Hermes" },
+            onDismiss = { showVoiceLive = false },
+        )
+    }
+
     HermesScaffold(
         modifier = modifier,
         pinTopBar = true,
@@ -531,6 +542,15 @@ fun ChatScreen(
             }
         },
         actions = {
+            IconButton(
+                onClick = { showVoiceLive = true },
+                modifier = Modifier.testTag("chat_voice_live_button"),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.GraphicEq,
+                    contentDescription = stringResource(R.string.voice_live_open),
+                )
+            }
             IconButton(onClick = { viewModel.createNewSession() }) {
                 Icon(
                     imageVector = Icons.Filled.Add,

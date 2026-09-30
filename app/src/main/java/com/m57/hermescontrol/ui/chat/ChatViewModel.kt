@@ -4320,6 +4320,20 @@ class ChatViewModel(
 
     // ── Session management ───────────────────────────────────────────────
 
+    /**
+     * Sends a request spoken through GPT-Live, tagged so Hermes answers in speakable prose.
+     * A newer spoken request replaces a running turn: the interrupt-then-submit path waits for
+     * the interrupt to land before the prompt goes out.
+     */
+    fun sendVoiceMessage(
+        text: String,
+        voiceContext: String,
+    ): Boolean {
+        val spoken = text.trim()
+        wsClient.armVoicePrompt(spoken, voiceContext)
+        return sendMessage(spoken, modeOverride = BusySendMode.INTERRUPT)
+    }
+
     fun interruptSession() {
         val sessionId = runtimeSessionId ?: return
         _uiState.value.currentSessionId?.let { storageId ->

@@ -201,6 +201,9 @@ dependencies {
     implementation(libs.media3.ui)
     implementation(libs.media3.datasource.okhttp)
 
+    // GPT-Live voice chat (WebRTC)
+    implementation(libs.stream.webrtc.android)
+
     // Encrypted storage
     implementation(libs.androidx.security.crypto)
     implementation(libs.androidx.datastore)

@@ -143,6 +143,9 @@ import com.m57.hermescontrol.data.model.UpdateProfileModelRequest
 import com.m57.hermescontrol.data.model.UpdateProfileSoulRequest
 import com.m57.hermescontrol.data.model.UpdateRawConfigRequest
 import com.m57.hermescontrol.data.model.UpdateReceiptResponse
+import com.m57.hermescontrol.data.model.VoiceLiveSessionRequest
+import com.m57.hermescontrol.data.model.VoiceLiveSessionResponse
+import com.m57.hermescontrol.data.model.VoiceLiveStatusResponse
 import com.m57.hermescontrol.data.model.WebhookSubscription
 import com.m57.hermescontrol.data.model.WebhookToggleSubscriptionRequest
 import com.m57.hermescontrol.data.model.WebhooksResponse
@@ -1051,4 +1054,18 @@ interface HermesApiService : KanbanApiService {
         @Body request: TtsSpeakRequest,
         @Query("profile") profile: String? = null,
     ): Response<TtsSpeakResponse>
+
+    // ── Audio: GPT-Live voice chat ──────────────────────────────────────
+    // The gateway exchanges our WebRTC offer with OpenAI's live voice model
+    // so the API key stays on the server (tools/voice_live.py).
+    @GET("api/audio/voice-live/status")
+    suspend fun voiceLiveStatus(
+        @Query("profile") profile: String? = null,
+    ): Response<VoiceLiveStatusResponse>
+
+    @POST("api/audio/voice-live/session")
+    suspend fun createVoiceLiveSession(
+        @Body body: VoiceLiveSessionRequest,
+        @Query("profile") profile: String? = null,
+    ): Response<VoiceLiveSessionResponse>
 }
