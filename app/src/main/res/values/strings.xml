@@ -1867,4 +1867,21 @@
     <string name="account_connectors_reconnect">Reconnect</string>
     <string name="account_connectors_no_tools">No tools available</string>
     <string name="account_connectors_policy_locked">Read-only policy restrictions</string>
+    <string name="voice_live_open">Talk live</string>
+    <string name="voice_live_close">Close voice</string>
+    <string name="voice_live_badge">GPT-Live</string>
+    <string name="voice_live_mic_denied">Allow the microphone to talk live.</string>
+    <string name="voice_live_setup_hint">Add an OpenAI API key on the Hermes server (OPENAI_API_KEY or voice.gpt_live.api_key), then try again.</string>
+    <string name="voice_live_checking">Checking voice…</string>
+    <string name="voice_live_unavailable">Live voice isn\'t set up yet</string>
+    <string name="voice_live_connecting">Connecting…</string>
+    <string name="voice_live_listening">Listening</string>
+    <string name="voice_live_working">Working: %1$s</string>
+    <string name="voice_live_thinking">Thinking…</string>
+    <string name="voice_live_speaking">Speaking</string>
+    <string name="voice_live_ended">Call ended</string>
+    <string name="voice_live_again">Start again</string>
+    <string name="voice_live_mute">Mute</string>
+    <string name="voice_live_unmute">Unmute</string>
+    <string name="voice_live_end">End</string>
 </resources>

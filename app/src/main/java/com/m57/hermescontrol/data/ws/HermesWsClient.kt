@@ -1028,6 +1028,26 @@ object HermesWsClient {
             }
     }
 
+    /** Voice extras for the next prompt with exactly this text (GPT-Live delegation). */
+    private data class ArmedVoicePrompt(
+        val text: String,
+        val voiceContext: String,
+    )
+
+    @Volatile private var armedVoicePrompt: ArmedVoicePrompt? = null
+
+    /**
+     * Marks the next [sendMessage] of [text] as spoken through GPT-Live: the gateway then asks for
+     * speakable prose and gives the model [voiceContext], the recent spoken exchange
+     * (hermes-agent `prompt.submit` `surface: "voice-live"`, `voice_context`).
+     */
+    fun armVoicePrompt(
+        text: String,
+        voiceContext: String,
+    ) {
+        armedVoicePrompt = ArmedVoicePrompt(text, voiceContext)
+    }
+
     /** Convenience: submit a user prompt to an existing session. */
     fun sendMessage(
         sessionId: String,
@@ -1035,10 +1055,16 @@ object HermesWsClient {
         onSent: ((String) -> Unit)? = null,
         queued: Boolean = false,
     ): String {
+        val voice = armedVoicePrompt?.takeIf { it.text == text }
+        if (voice != null) armedVoicePrompt = null
         val params =
             buildMap {
                 put("session_id", sessionId)
                 put("text", text)
+                if (voice != null) {
+                    put("surface", "voice-live")
+                    put("voice_context", voice.voiceContext.take(6_000))
+                }
                 // Explicit queue semantics: the gateway's busy-input policy
                 // forces "run after, never interrupt" when prompt.submit
                 // carries queued=true (hermes-agent methods_prompt.py

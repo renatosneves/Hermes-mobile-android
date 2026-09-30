@@ -4320,6 +4320,16 @@ class ChatViewModel(
 
     // ── Session management ───────────────────────────────────────────────
 
+    /** Sends a request spoken through GPT-Live, tagged so Hermes answers in speakable prose. */
+    fun sendVoiceMessage(
+        text: String,
+        voiceContext: String,
+    ): Boolean {
+        val spoken = text.trim()
+        wsClient.armVoicePrompt(spoken, voiceContext)
+        return sendMessage(spoken)
+    }
+
     fun interruptSession() {
         val sessionId = runtimeSessionId ?: return
         _uiState.value.currentSessionId?.let { storageId ->
