@@ -187,7 +187,7 @@ class VoiceLiveController(
         _ui.update { it.copy(phase = phase) }
     }
 
-    private fun onDelegation(id: String) {
+    private fun handleDelegation(id: String) {
         FreezeReporter.note("Delegation $id")
         val session = transport ?: return
         val (prompt, voiceContext) = VoiceLivePlanner.delegationPrompt(VoiceLivePlanner.contextWindow(transcript))
@@ -342,7 +342,7 @@ class VoiceLiveController(
         }
 
         override fun onDelegation(delegationId: String) {
-            scope.launch { onDelegation(delegationId) }
+            scope.launch { handleDelegation(delegationId) }
         }
 
         override fun onSpeakingChange(speaking: Boolean) {
