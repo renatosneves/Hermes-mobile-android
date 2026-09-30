@@ -3,6 +3,8 @@ package com.m57.hermescontrol.ui.bots
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -10,7 +12,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +24,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -47,6 +51,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.m57.hermescontrol.R
 import com.m57.hermescontrol.theme.BotsPalette
@@ -143,7 +150,10 @@ fun BotAppearanceEditor(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(6.dp))
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             BotsPresentation.SHAPES.forEach { key ->
                 FilterChip(
                     selected = shape == key,
@@ -169,32 +179,46 @@ fun BotAppearanceEditor(
         )
         Spacer(Modifier.height(8.dp))
         FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             BotsPresentation.COLOR_OPTIONS.forEach { hex ->
                 val swatch = parseHexColor(hex, Color.Transparent)
                 val selected = colorHex.equals(hex, ignoreCase = true)
+                val label = stringResource(R.string.bots_color_option, hex)
+                // 48 dp touch target around a 34 dp swatch, announced as a selectable colour.
                 Box(
                     modifier =
                         Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(swatch)
-                            .border(
-                                width = if (selected) 3.dp else 1.dp,
-                                color = if (selected) MaterialTheme.colorScheme.onSurface else BotsPalette.Line,
-                                shape = CircleShape,
-                            ).clickable { onColorChange(hex) },
+                            .size(48.dp)
+                            .selectable(
+                                selected = selected,
+                                role = Role.RadioButton,
+                                onClick = { onColorChange(hex) },
+                            ).semantics { contentDescription = label },
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (selected) {
-                        Icon(
-                            Icons.Filled.Check,
-                            contentDescription = null,
-                            tint = if (swatch.luminance() > 0.5f) BotsPalette.Ink else BotsPalette.Fg,
-                            modifier = Modifier.size(18.dp),
-                        )
+                    Box(
+                        modifier =
+                            Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(swatch)
+                                .border(
+                                    width = if (selected) 3.dp else 1.dp,
+                                    color = if (selected) MaterialTheme.colorScheme.onSurface else BotsPalette.Line,
+                                    shape = CircleShape,
+                                ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (selected) {
+                            Icon(
+                                Icons.Filled.Check,
+                                contentDescription = null,
+                                tint = if (swatch.luminance() > 0.5f) BotsPalette.Ink else BotsPalette.Fg,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -218,8 +242,9 @@ internal fun encodeBotImage(
             context.contentResolver.openInputStream(uri)?.use {
                 BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
             } ?: return null
-        val side = minOf(decoded.width, decoded.height)
-        val square = Bitmap.createBitmap(decoded, (decoded.width - side) / 2, (decoded.height - side) / 2, side, side)
+        val upright = applyExifOrientation(context, uri, decoded)
+        val side = minOf(upright.width, upright.height)
+        val square = Bitmap.createBitmap(upright, (upright.width - side) / 2, (upright.height - side) / 2, side, side)
         val scaled = Bitmap.createScaledBitmap(square, BOT_IMAGE_PX, BOT_IMAGE_PX, true)
         val bytes =
             ByteArrayOutputStream().use { out ->
@@ -228,3 +253,54 @@ internal fun encodeBotImage(
             }
         "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
     }.getOrNull()
+
+/** Camera photos often store rotation in EXIF rather than in the pixels; honour it before cropping. */
+private fun applyExifOrientation(
+    context: Context,
+    uri: Uri,
+    bitmap: Bitmap,
+): Bitmap {
+    val orientation =
+        runCatching {
+            context.contentResolver.openInputStream(uri)?.use {
+                ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+            }
+        }.getOrNull() ?: ExifInterface.ORIENTATION_NORMAL
+    val matrix = Matrix()
+    when (orientation) {
+        ExifInterface.ORIENTATION_ROTATE_90 -> {
+            matrix.postRotate(90f)
+        }
+
+        ExifInterface.ORIENTATION_ROTATE_180 -> {
+            matrix.postRotate(180f)
+        }
+
+        ExifInterface.ORIENTATION_ROTATE_270 -> {
+            matrix.postRotate(270f)
+        }
+
+        ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> {
+            matrix.postScale(-1f, 1f)
+        }
+
+        ExifInterface.ORIENTATION_FLIP_VERTICAL -> {
+            matrix.postScale(1f, -1f)
+        }
+
+        ExifInterface.ORIENTATION_TRANSPOSE -> {
+            matrix.postRotate(90f)
+            matrix.postScale(-1f, 1f)
+        }
+
+        ExifInterface.ORIENTATION_TRANSVERSE -> {
+            matrix.postRotate(270f)
+            matrix.postScale(-1f, 1f)
+        }
+
+        else -> {
+            return bitmap
+        }
+    }
+    return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+}

@@ -103,6 +103,7 @@
     <string name="bots_image_change">Change image</string>
     <string name="bots_image_remove">Remove</string>
     <string name="bots_image_error">That image could not be read. Try another one.</string>
+    <string name="bots_color_option">Colour %1$s</string>
     <plurals name="bots_count">
         <item quantity="one">%d bot</item>
         <item quantity="other">%d bots</item>

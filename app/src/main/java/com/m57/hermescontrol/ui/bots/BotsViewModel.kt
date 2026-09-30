@@ -596,6 +596,8 @@ class BotsViewModel(
                             av.shape?.let { put("shape", it) }
                             av.color?.let { put("color", it) }
                             av.icon?.let { put("icon", it) }
+                            // Always sent so removing an image clears it; readers treat "" as no image.
+                            put("image_url", av.image_url.orEmpty())
                         },
                     )
                 }
