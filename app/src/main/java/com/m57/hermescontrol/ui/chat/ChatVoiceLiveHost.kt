@@ -17,6 +17,9 @@ class ChatVoiceLiveHost(
     /** Assistant messages already on screen when the current request went in. */
     @Volatile private var baseline: Set<String> = emptySet()
 
+    /** Every message already on screen when the current request went in (older tool rows included). */
+    @Volatile private var seenIds: Set<String> = emptySet()
+
     override suspend fun checkAvailable(): Pair<Boolean, String?> =
         when (val result = safeApiCall(retries = 0) { ApiClient.hermesApi.voiceLiveStatus() }) {
             is NetworkResult.Success -> {
@@ -66,12 +69,14 @@ class ChatVoiceLiveHost(
         voiceContext: String,
     ) {
         baseline = assistantIds()
+        seenIds =
+            viewModel.uiState.value.messages
+                .map { it.id }
+                .toSet()
         check(viewModel.sendVoiceMessage(prompt, voiceContext)) { "Hermes did not accept the request" }
     }
 
     override fun isBusy(): Boolean = viewModel.uiState.value.isAgentTyping
-
-    override fun interrupt() = viewModel.interruptSession()
 
     override fun replySince(sinceMs: Long): VoiceReply? {
         viewModel.streamingState.value.streamingMessage
@@ -84,7 +89,7 @@ class ChatVoiceLiveHost(
 
     override fun activeTool(): String? =
         viewModel.uiState.value.messages
-            .lastOrNull { it.toolStatus == ToolStatus.RUNNING }
+            .lastOrNull { it.isToolRunning && it.id !in seenIds }
             ?.toolName
             ?.replace('_', ' ')
 

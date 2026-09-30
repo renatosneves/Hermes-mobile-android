@@ -53,8 +53,6 @@ interface VoiceLiveHost {
 
     fun isBusy(): Boolean
 
-    fun interrupt()
-
     /** The newest assistant reply that started after [sinceMs], if any. */
     fun replySince(sinceMs: Long): VoiceReply?
 
@@ -75,6 +73,9 @@ class VoiceLiveController(
     val ui: StateFlow<VoiceLiveUi> = _ui.asStateFlow()
 
     private var transport: VoiceLiveTransport? = null
+
+    /** A session told to close but not yet confirmed closed; aborted if the screen goes first. */
+    @Volatile private var closing: VoiceLiveTransport? = null
     private val transcript = mutableListOf<LiveTranscriptFragment>()
     private var utterance = StringBuilder()
     private var utteranceJob: Job? = null
@@ -127,7 +128,10 @@ class VoiceLiveController(
         utteranceJob?.cancel()
         feedJob?.cancel()
         delegationId = null
-        transport?.close()
+        transport?.let {
+            it.close()
+            closing = it
+        }
         transport = null
         _ui.update { it.copy(phase = VoiceLivePhase.ENDED, working = null) }
     }
@@ -142,6 +146,9 @@ class VoiceLiveController(
             it.abort("close_requested")
         }
         transport = null
+        // Its close fallback ran in the screen's scope, which is going away: drop it now.
+        closing?.abort("close_requested")
+        closing = null
     }
 
     private fun refreshPhase() {
@@ -162,8 +169,8 @@ class VoiceLiveController(
             end()
             return
         }
-        // A newer request supersedes one still running, so the answer matches what you asked last.
-        if (host.isBusy()) host.interrupt()
+        // A newer request supersedes one still running (submit interrupts it first), so the
+        // answer matches what you asked last.
         delegationId = id
         refreshPhase()
         val submittedAt = System.currentTimeMillis()
@@ -294,6 +301,7 @@ class VoiceLiveController(
         ) {
             scope.launch {
                 transport = null
+                closing = null
                 delegationId = null
                 feedJob?.cancel()
                 val note =
