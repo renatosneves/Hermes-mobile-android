@@ -71,6 +71,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
@@ -94,6 +95,7 @@ import com.m57.hermescontrol.data.session.ActiveSessionHolder
 import com.m57.hermescontrol.data.ws.ConnectionStatus
 import com.m57.hermescontrol.data.ws.HermesWsClient
 import com.m57.hermescontrol.notification.NotificationHelper
+import com.m57.hermescontrol.share.ShareInbox
 import com.m57.hermescontrol.theme.LocalHermesStatusColors
 import com.m57.hermescontrol.ui.chat.components.ChatAppUpdateSection
 import com.m57.hermescontrol.ui.chat.components.ChatConnectionBanner
@@ -349,6 +351,18 @@ fun ChatScreen(
     }
     var inputFieldValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(""))
+    }
+    // Shared from another app and sent here from the bot list: fill the composer, don't send.
+    val shareArmed by ShareInbox.armed.collectAsStateWithLifecycle()
+    LaunchedEffect(viewModel, shareArmed) {
+        if (!shareArmed) return@LaunchedEffect
+        val shared = ShareInbox.take() ?: return@LaunchedEffect
+        if (shared.text.isNotEmpty()) {
+            val merged =
+                listOf(inputFieldValue.text, shared.text).filter { it.isNotBlank() }.joinToString("\n")
+            inputFieldValue = TextFieldValue(merged, selection = TextRange(merged.length))
+        }
+        viewModel.addAttachments(shared.attachments)
     }
 
     LaunchedEffect(state.pendingPrefillText) {

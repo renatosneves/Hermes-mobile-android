@@ -100,6 +100,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.m57.hermescontrol.NavigationController
 import com.m57.hermescontrol.R
 import com.m57.hermescontrol.data.model.ProfileInfo
+import com.m57.hermescontrol.share.ShareInbox
 import com.m57.hermescontrol.theme.BotsPalette
 import com.m57.hermescontrol.ui.chat.ChatScreen
 import com.m57.hermescontrol.ui.chat.VoiceLiveCalls
@@ -197,6 +198,8 @@ fun BotsScreen(
                     viewModel.selectBot(profile)
                     viewModel.markSeen(profile)
                     if (!twoPane) phoneChatOpen = true
+                    // Something shared is waiting: this bot's chat takes it.
+                    ShareInbox.arm()
                 }
             }
             val rail: @Composable (Modifier, String?) -> Unit = { railModifier, selectedName ->
@@ -240,6 +243,10 @@ fun BotsScreen(
             val voiceCall by VoiceLiveCalls.active.collectAsStateWithLifecycle()
             LaunchedEffect(twoPane, voiceCall) {
                 if (!twoPane && voiceCall != null && openBotName != null) phoneChatOpen = true
+            }
+            val shared by ShareInbox.pending.collectAsStateWithLifecycle()
+            LaunchedEffect(shared != null) {
+                if (shared != null && !twoPane) phoneChatOpen = false
             }
             val selectedName = openBotName ?: state.activeProfileName
             val selected = state.profiles.firstOrNull { it.name == selectedName }
@@ -285,6 +292,35 @@ fun BotsScreen(
             } else {
                 rail(Modifier.fillMaxSize(), null)
             }
+        }
+    }
+}
+
+/** Shown while something shared from another app waits for you to pick a bot. */
+@Composable
+private fun ShareBanner(onCancel: () -> Unit) {
+    Row(
+        modifier =
+            Modifier
+                .padding(horizontal = 14.dp, vertical = 6.dp)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(BotsPalette.Deck2)
+                .border(1.dp, BotsPalette.Attention, RoundedCornerShape(14.dp))
+                .padding(start = 14.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                stringResource(R.string.share_pick_bot),
+                color = BotsPalette.Fg,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+            )
+            Text(stringResource(R.string.share_pick_bot_hint), color = BotsPalette.Muted, fontSize = 12.sp)
+        }
+        TextButton(onClick = onCancel) {
+            Text(stringResource(R.string.share_cancel), color = BotsPalette.Attention)
         }
     }
 }
@@ -371,6 +407,15 @@ private fun BotsRail(
             onToggleHidden = onToggleHidden,
             onRefresh = onRefresh,
         )
+
+        val shared by ShareInbox.pending.collectAsStateWithLifecycle()
+        AnimatedVisibility(
+            visible = shared != null,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut(),
+        ) {
+            ShareBanner(onCancel = ShareInbox::cancel)
+        }
 
         AnimatedVisibility(
             visible = searchOpen,
