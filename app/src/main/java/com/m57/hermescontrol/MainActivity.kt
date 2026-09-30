@@ -21,6 +21,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.m57.hermescontrol.data.local.AuthManager
 import com.m57.hermescontrol.data.update.UpdateNoticeManager
 import com.m57.hermescontrol.data.ws.HermesWsClient
+import com.m57.hermescontrol.diagnostics.FreezeReportPrompt
 import com.m57.hermescontrol.notification.NotificationHelper
 import com.m57.hermescontrol.notification.NotificationReplyReceiver
 import com.m57.hermescontrol.theme.HermesControlTheme
@@ -108,6 +109,7 @@ class MainActivity : ComponentActivity() {
                                 LoadingState()
                             } else {
                                 MainNavigation()
+                                FreezeReportPrompt()
                             }
                         }
 

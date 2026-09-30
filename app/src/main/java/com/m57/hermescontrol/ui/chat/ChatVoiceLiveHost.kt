@@ -5,6 +5,7 @@ import com.m57.hermescontrol.data.remote.ApiClient
 import com.m57.hermescontrol.data.remote.NetworkError
 import com.m57.hermescontrol.data.remote.NetworkResult
 import com.m57.hermescontrol.data.remote.safeApiCall
+import com.m57.hermescontrol.diagnostics.FreezeReporter
 import com.m57.hermescontrol.voice.VoiceAsk
 import com.m57.hermescontrol.voice.VoiceLiveHost
 import com.m57.hermescontrol.voice.VoiceLivePlanner
@@ -74,7 +75,9 @@ class ChatVoiceLiveHost(
             viewModel.uiState.value.messages
                 .map { it.id }
                 .toSet()
-        check(viewModel.sendVoiceMessage(prompt, voiceContext)) { "Hermes did not accept the request" }
+        val accepted = viewModel.sendVoiceMessage(prompt, voiceContext)
+        FreezeReporter.note("Chat accepted the request: $accepted")
+        check(accepted) { "Hermes did not accept the request" }
     }
 
     override fun isBusy(): Boolean = viewModel.uiState.value.isAgentTyping

@@ -768,76 +768,80 @@ fun ChatScreen(
 
                 // Full-bleed chat renderer (issue #866) — the single chat
                 // surface since the bubble renderer was removed.
-                FullBleedChatList(
-                    transcript =
-                        transcriptState.copy(
-                            savingAttachmentPath = pendingSavePath ?: transcriptState.savingAttachmentPath,
-                            speakingMessageId = speakingMessageId,
-                        ),
-                    actions =
-                        TranscriptActions(
-                            onLoadOlder = viewModel::loadOlderMessages,
-                            onOpenAttachment = viewModel::openAttachment,
-                            onSaveAttachment = onSaveAttachment,
-                            onImageClick = { viewingImage = it },
-                            onRespondApproval = viewModel::respondToApproval,
-                            onRespondClarify = viewModel::respondToClarify,
-                            onRespondClarifyBatch = viewModel::respondToClarifyBatch,
-                            onDismissClarify = viewModel::dismissClarify,
-                            onRespondVaultUnlock = viewModel::respondToVaultUnlock,
-                            onDismissVaultUnlock = viewModel::dismissVaultUnlock,
-                            onRespondVaultSaveLogin = viewModel::respondToVaultSaveLogin,
-                            onDismissVaultSaveLogin = viewModel::dismissVaultSaveLogin,
-                            onRespondVaultCode = viewModel::respondToVaultCode,
-                            onDismissVaultCode = viewModel::dismissVaultCode,
-                            onToggleSpeak = { message ->
-                                val scopeKey = "${dataScope?.inMemoryKey(localKey = activeSessionId ?: "none")}"
-                                speechController.toggle(
-                                    SpeechRequest(
-                                        scopeKey = scopeKey,
-                                        messageId = message.id,
-                                        text = SpeechText.stripMarkdownForSpeech(message.content),
-                                    ),
-                                )
+                // While a live voice call covers the chat, don't render it: a busy bot's
+                // stream of tool cards has nothing to show under the call screen.
+                if (ownCall == null || ownCall.minimised) {
+                    FullBleedChatList(
+                        transcript =
+                            transcriptState.copy(
+                                savingAttachmentPath = pendingSavePath ?: transcriptState.savingAttachmentPath,
+                                speakingMessageId = speakingMessageId,
+                            ),
+                        actions =
+                            TranscriptActions(
+                                onLoadOlder = viewModel::loadOlderMessages,
+                                onOpenAttachment = viewModel::openAttachment,
+                                onSaveAttachment = onSaveAttachment,
+                                onImageClick = { viewingImage = it },
+                                onRespondApproval = viewModel::respondToApproval,
+                                onRespondClarify = viewModel::respondToClarify,
+                                onRespondClarifyBatch = viewModel::respondToClarifyBatch,
+                                onDismissClarify = viewModel::dismissClarify,
+                                onRespondVaultUnlock = viewModel::respondToVaultUnlock,
+                                onDismissVaultUnlock = viewModel::dismissVaultUnlock,
+                                onRespondVaultSaveLogin = viewModel::respondToVaultSaveLogin,
+                                onDismissVaultSaveLogin = viewModel::dismissVaultSaveLogin,
+                                onRespondVaultCode = viewModel::respondToVaultCode,
+                                onDismissVaultCode = viewModel::dismissVaultCode,
+                                onToggleSpeak = { message ->
+                                    val scopeKey = "${dataScope?.inMemoryKey(localKey = activeSessionId ?: "none")}"
+                                    speechController.toggle(
+                                        SpeechRequest(
+                                            scopeKey = scopeKey,
+                                            messageId = message.id,
+                                            text = SpeechText.stripMarkdownForSpeech(message.content),
+                                        ),
+                                    )
+                                },
+                            ),
+                        searchState = searchState,
+                        listState = listState,
+                        scrollController = scrollController,
+                        replyErrorContent =
+                            state.replyFailure?.takeUnless { timelineState.isHistorical }?.let { failure ->
+                                {
+                                    val clipboard = LocalClipboardManager.current
+                                    val copiedMessage = stringResource(R.string.chat_reply_failed_copied)
+                                    val shareTitle = stringResource(R.string.chat_reply_failed_share)
+                                    val shareUnavailable = stringResource(R.string.chat_reply_failed_share_unavailable)
+                                    ReplyErrorCard(
+                                        failure = failure,
+                                        onDismiss = { viewModel.dismissReplyFailure(failure.id) },
+                                        onOpenLogs = { NavigationController.navigateTo(LogsScreen) },
+                                        onCopy = { details ->
+                                            clipboard.setText(AnnotatedString(details))
+                                            scrollScope.launch { snackbarHostState.showSnackbar(copiedMessage) }
+                                        },
+                                        onShare = { details ->
+                                            val report = "Hermes Mobile ${BuildConfig.VERSION_NAME}\n\n$details"
+                                            val intent =
+                                                Intent(Intent.ACTION_SEND).apply {
+                                                    type = "text/plain"
+                                                    putExtra(Intent.EXTRA_TEXT, report)
+                                                }
+                                            try {
+                                                launchExternalActivity {
+                                                    context.startActivity(Intent.createChooser(intent, shareTitle))
+                                                }
+                                            } catch (_: ActivityNotFoundException) {
+                                                scrollScope.launch { snackbarHostState.showSnackbar(shareUnavailable) }
+                                            }
+                                        },
+                                    )
+                                }
                             },
-                        ),
-                    searchState = searchState,
-                    listState = listState,
-                    scrollController = scrollController,
-                    replyErrorContent =
-                        state.replyFailure?.takeUnless { timelineState.isHistorical }?.let { failure ->
-                            {
-                                val clipboard = LocalClipboardManager.current
-                                val copiedMessage = stringResource(R.string.chat_reply_failed_copied)
-                                val shareTitle = stringResource(R.string.chat_reply_failed_share)
-                                val shareUnavailable = stringResource(R.string.chat_reply_failed_share_unavailable)
-                                ReplyErrorCard(
-                                    failure = failure,
-                                    onDismiss = { viewModel.dismissReplyFailure(failure.id) },
-                                    onOpenLogs = { NavigationController.navigateTo(LogsScreen) },
-                                    onCopy = { details ->
-                                        clipboard.setText(AnnotatedString(details))
-                                        scrollScope.launch { snackbarHostState.showSnackbar(copiedMessage) }
-                                    },
-                                    onShare = { details ->
-                                        val report = "Hermes Mobile ${BuildConfig.VERSION_NAME}\n\n$details"
-                                        val intent =
-                                            Intent(Intent.ACTION_SEND).apply {
-                                                type = "text/plain"
-                                                putExtra(Intent.EXTRA_TEXT, report)
-                                            }
-                                        try {
-                                            launchExternalActivity {
-                                                context.startActivity(Intent.createChooser(intent, shareTitle))
-                                            }
-                                        } catch (_: ActivityNotFoundException) {
-                                            scrollScope.launch { snackbarHostState.showSnackbar(shareUnavailable) }
-                                        }
-                                    },
-                                )
-                            }
-                        },
-                )
+                    )
+                }
 
                 // Loading overlay
                 ChatLoadingOverlay(

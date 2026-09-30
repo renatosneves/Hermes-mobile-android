@@ -2,6 +2,7 @@ package com.m57.hermescontrol.ui.chat
 
 import android.content.Context
 import android.util.Log
+import com.m57.hermescontrol.diagnostics.FreezeReporter
 import com.m57.hermescontrol.voice.VoiceLiveController
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -31,6 +32,7 @@ object VoiceLiveCalls {
     private val failureHandler =
         CoroutineExceptionHandler { _, error ->
             Log.w(TAG, "Voice call failed", error)
+            FreezeReporter.note("Voice call failed: ${error.stackTraceToString().take(2_000)}")
             _active.value?.controller?.dispose()
             _active.value = null
         }
@@ -59,6 +61,8 @@ object VoiceLiveCalls {
                 ChatVoiceLiveHost(owner),
                 persona = persona(title),
             )
+        FreezeReporter.startWatchdog()
+        FreezeReporter.note("Voice call opened with $title")
         return Call(owner, controller, title, imageUrl).also { _active.value = it }
     }
 
@@ -71,6 +75,8 @@ object VoiceLiveCalls {
     fun hangUp() {
         val call = _active.value ?: return
         _active.value = null
+        FreezeReporter.note("Voice call hung up")
+        FreezeReporter.stopWatchdog()
         call.controller.end()
     }
 

@@ -322,37 +322,55 @@ private fun Controls(
         }
         return
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(28.dp), verticalAlignment = Alignment.CenterVertically) {
-        FilledIconButton(
-            onClick = onMute,
-            modifier = Modifier.size(64.dp).testTag("voice_live_mute"),
-            shape = CircleShape,
-            colors =
-                IconButtonDefaults.filledIconButtonColors(
-                    containerColor = if (muted) BotsPalette.Fg else BotsPalette.Deck2,
-                    contentColor = if (muted) BotsPalette.Ink else BotsPalette.Fg,
-                ),
+    Row(horizontalArrangement = Arrangement.spacedBy(36.dp), verticalAlignment = Alignment.Top) {
+        LabelledControl(
+            label = stringResource(if (muted) R.string.voice_live_muted else R.string.voice_live_mute),
         ) {
-            Icon(
-                if (muted) Icons.Filled.MicOff else Icons.Filled.Mic,
-                contentDescription =
-                    stringResource(
-                        if (muted) R.string.voice_live_unmute else R.string.voice_live_mute,
+            FilledIconButton(
+                onClick = onMute,
+                modifier = Modifier.size(64.dp).testTag("voice_live_mute"),
+                shape = CircleShape,
+                colors =
+                    IconButtonDefaults.filledIconButtonColors(
+                        containerColor = if (muted) BotsPalette.Fg else BotsPalette.Deck2,
+                        contentColor = if (muted) BotsPalette.Ink else BotsPalette.Fg,
                     ),
-            )
+            ) {
+                Icon(
+                    if (muted) Icons.Filled.MicOff else Icons.Filled.Mic,
+                    contentDescription =
+                        stringResource(
+                            if (muted) R.string.voice_live_unmute else R.string.voice_live_mute,
+                        ),
+                )
+            }
         }
-        FilledIconButton(
-            onClick = onEnd,
-            modifier = Modifier.size(72.dp).testTag("voice_live_end"),
-            shape = CircleShape,
-            colors =
-                IconButtonDefaults.filledIconButtonColors(
-                    containerColor = BotsPalette.Offline,
-                    contentColor = BotsPalette.Ink,
-                ),
-        ) {
-            Icon(Icons.Filled.CallEnd, contentDescription = stringResource(R.string.voice_live_end))
+        LabelledControl(label = stringResource(R.string.voice_live_end)) {
+            FilledIconButton(
+                onClick = onEnd,
+                modifier = Modifier.size(64.dp).testTag("voice_live_end"),
+                shape = CircleShape,
+                colors =
+                    IconButtonDefaults.filledIconButtonColors(
+                        containerColor = BotsPalette.Offline,
+                        contentColor = BotsPalette.Ink,
+                    ),
+            ) {
+                Icon(Icons.Filled.CallEnd, contentDescription = stringResource(R.string.voice_live_end))
+            }
         }
+    }
+}
+
+@Composable
+private fun LabelledControl(
+    label: String,
+    button: @Composable () -> Unit,
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        button()
+        Spacer(Modifier.height(6.dp))
+        Text(label, color = BotsPalette.Muted, fontSize = 12.sp)
     }
 }
 

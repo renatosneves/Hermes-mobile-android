@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
+import com.m57.hermescontrol.diagnostics.FreezeReporter
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -245,6 +246,7 @@ class VoiceLiveTransport(
     /** Only on the WebRTC thread (see [rtc]). */
     private fun sendRaw(event: JsonObject): Boolean {
         if (finalized.get()) return false
+        FreezeReporter.note("Voice send ${event.str("type")}")
         val channel = events ?: return false
         if (channel.state() != DataChannel.State.OPEN) return false
         val bytes = event.toString().toByteArray(Charsets.UTF_8)
@@ -255,6 +257,7 @@ class VoiceLiveTransport(
 
     private fun handleEvent(raw: String) {
         val event = runCatching { json.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return
+        event.str("type")?.takeUnless { it.endsWith(".delta") }?.let { FreezeReporter.note("Voice event $it") }
         when (event.str("type")) {
             "session.started" -> {
                 sessionId = event.obj("session")?.str("id") ?: sessionId

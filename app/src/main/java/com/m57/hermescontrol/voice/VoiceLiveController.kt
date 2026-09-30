@@ -1,6 +1,7 @@
 package com.m57.hermescontrol.voice
 
 import android.content.Context
+import com.m57.hermescontrol.diagnostics.FreezeReporter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -138,6 +139,7 @@ class VoiceLiveController(
 
     fun toggleMute() {
         val muted = !_ui.value.muted
+        FreezeReporter.note("Mute tapped: muted=$muted, transport=${transport != null}")
         transport?.setMuted(muted)
         _ui.update { it.copy(muted = muted) }
     }
@@ -186,6 +188,7 @@ class VoiceLiveController(
     }
 
     private fun onDelegation(id: String) {
+        FreezeReporter.note("Delegation $id")
         val session = transport ?: return
         val (prompt, voiceContext) = VoiceLivePlanner.delegationPrompt(VoiceLivePlanner.contextWindow(transcript))
         if (prompt.isNotBlank() && VoiceLivePlanner.isStopCommand(prompt)) {
@@ -197,12 +200,15 @@ class VoiceLiveController(
         delegationId = id
         refreshPhase()
         val submittedAt = System.currentTimeMillis()
+        FreezeReporter.note("Submitting ${prompt.length} chars to the bot")
         runCatching { host.submit(prompt, voiceContext) }.onFailure {
+            FreezeReporter.note("Submit failed: $it")
             session.speak(id, "Sorry, I could not reach Hermes for that request.")
             delegationId = null
             refreshPhase()
             return
         }
+        FreezeReporter.note("Submitted; following the reply")
         feedReply(session, id, submittedAt)
     }
 
@@ -219,6 +225,8 @@ class VoiceLiveController(
                 var spokenLength = 0
                 var lastTool: String? = null
                 var lastAsk: VoiceAsk? = null
+                var lastText: String? = null
+                var spoken = ""
                 var observed = false
                 var settleFrom = submittedAt
                 while (isActive && delegationId == id && transport === session) {
@@ -256,8 +264,14 @@ class VoiceLiveController(
                         if (reply.id != spokenReplyId) {
                             spokenReplyId = reply.id
                             spokenLength = 0
+                            lastText = null
                         }
-                        val spoken = VoiceLivePlanner.speakable(reply.text)
+                        // Only re-clean the text when it grew: a long reply would otherwise be
+                        // re-parsed on the main thread five times a second.
+                        if (reply.text != lastText) {
+                            lastText = reply.text
+                            spoken = VoiceLivePlanner.speakable(reply.text)
+                        }
                         if (reply.pending || host.isBusy()) {
                             val boundary = spoken.lastIndexOf(". ", spoken.length - 2)
                             if (boundary + 1 > spokenLength) {
@@ -276,6 +290,7 @@ class VoiceLiveController(
                     }
                     delay(FEED_TICK_MS)
                 }
+                FreezeReporter.note("Reply feed for $id finished")
                 if (delegationId == id) delegationId = null
                 _ui.update { it.copy(working = null, ask = null) }
                 refreshPhase()
@@ -338,6 +353,7 @@ class VoiceLiveController(
         }
 
         override fun onError(message: String) {
+            FreezeReporter.note("Voice error: $message")
             scope.launch { _ui.update { it.copy(message = message) } }
         }
 
@@ -345,6 +361,7 @@ class VoiceLiveController(
             reason: String,
             usageSeconds: Double?,
         ) {
+            FreezeReporter.note("Voice closed: $reason")
             scope.launch {
                 transport = null
                 closing = null
