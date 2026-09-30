@@ -95,7 +95,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.m57.hermescontrol.NavigationController
 import com.m57.hermescontrol.R
@@ -158,11 +161,21 @@ fun BotsScreen(
     // Horizontal drags on this screen belong to its content; the drawer opens from the menu button.
     DisableDrawerGestures()
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(REFRESH_INTERVAL_MS)
-            now = nowSeconds()
-            viewModel.loadBots(isRefresh = true)
+    // Poll only while the screen is on show; coming back refreshes straight away.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        var first = true
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            if (!first) {
+                now = nowSeconds()
+                viewModel.loadBots(isRefresh = true)
+            }
+            first = false
+            while (true) {
+                delay(REFRESH_INTERVAL_MS)
+                now = nowSeconds()
+                viewModel.loadBots(isRefresh = true)
+            }
         }
     }
 

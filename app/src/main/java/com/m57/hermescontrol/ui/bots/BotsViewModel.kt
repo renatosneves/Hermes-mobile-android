@@ -21,6 +21,7 @@ import com.m57.hermescontrol.data.ws.toJsonElement
 import com.m57.hermescontrol.ui.common.ToastHost
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -256,10 +258,24 @@ class BotsViewModel(
         }
     }
 
+    /** The roster load in flight; a new request while it runs is folded into it. */
+    private var loadJob: Job? = null
+    private var markSeenAfterLoad: String? = null
+
+    /** Pictures, "needs you" and previews, each refreshed on its own after a roster load. */
+    private var enrichJobs: List<Job> = emptyList()
+
     fun loadBots(
         isRefresh: Boolean = false,
         thenMarkSeen: String? = null,
     ) {
+        // One roster load at a time: a slow server must not stack refreshes on top of each other.
+        if (loadJob?.isActive == true) {
+            if (thenMarkSeen != null) markSeenAfterLoad = thenMarkSeen
+            return
+        }
+        markSeenAfterLoad = thenMarkSeen
+        val server = serverScope()
         _uiState.update {
             if (isRefresh) {
                 it.copy(isRefreshing = true, errorMessage = null)
@@ -267,90 +283,123 @@ class BotsViewModel(
                 it.copy(isLoading = true, errorMessage = null)
             }
         }
-        viewModelScope.launch(ioDispatcher) {
-            coroutineScope {
-                val activeDeferred = async(ioDispatcher) { safeApiCall { ApiClient.hermesApi.getActiveProfile() } }
-
-                // First try fetching profiles via WebSocket RPC (profiles.list) which includes ui_meta (groups, custom avatars).
-                var profilesWithMeta: List<ProfileInfo>? = null
+        loadJob =
+            viewModelScope.launch(ioDispatcher) {
                 try {
-                    val rpcResult = HermesWsClient.request(WsMethods.PROFILES_LIST).await()
-                    val jsonElement =
-                        when (rpcResult) {
-                            is JsonElement -> rpcResult
-                            null -> null
-                            else -> rpcResult.toJsonElement()
-                        }
-                    if (jsonElement != null) {
-                        val resp = OkHttpProvider.json.decodeFromJsonElement<ProfilesResponse>(jsonElement)
-                        if (!resp.profiles.isNullOrEmpty()) {
-                            profilesWithMeta = resp.profiles
-                        }
+                    loadRoster(server)
+                } finally {
+                    // Never leave the spinner on, whatever happened to the load.
+                    _uiState.update { it.copy(isLoading = false, isRefreshing = false) }
+                }
+            }
+    }
+
+    private suspend fun loadRoster(server: String) {
+        coroutineScope {
+            val activeDeferred =
+                async(ioDispatcher) {
+                    withTimeoutOrNull(METADATA_TIMEOUT_MS) {
+                        safeApiCall(retries = 0) { ApiClient.hermesApi.getActiveProfile() }
                     }
-                } catch (_: Exception) {
-                    // Fallback to REST API below
                 }
 
-                val profilesResult =
-                    if (profilesWithMeta != null) {
-                        null
-                    } else {
-                        safeApiCall { ApiClient.hermesApi.getProfiles() }
+            // First try fetching profiles via WebSocket RPC (profiles.list) which includes ui_meta (groups, custom avatars).
+            var profilesWithMeta: List<ProfileInfo>? = null
+            try {
+                val rpcResult =
+                    HermesWsClient.request(WsMethods.PROFILES_LIST, timeoutMs = METADATA_TIMEOUT_MS).await()
+                val jsonElement =
+                    when (rpcResult) {
+                        is JsonElement -> rpcResult
+                        null -> null
+                        else -> rpcResult.toJsonElement()
                     }
-                val activeResult = activeDeferred.await()
+                if (jsonElement != null) {
+                    val resp = OkHttpProvider.json.decodeFromJsonElement<ProfilesResponse>(jsonElement)
+                    if (!resp.profiles.isNullOrEmpty()) {
+                        profilesWithMeta = resp.profiles
+                    }
+                }
+            } catch (_: Exception) {
+                // Fallback to REST API below
+            }
 
+            val profilesResult =
                 if (profilesWithMeta != null) {
-                    val activeName = (activeResult as? NetworkResult.Success)?.data?.active
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            isRefreshing = false,
-                            profiles = profilesWithMeta,
-                            activeProfileName = activeName ?: it.activeProfileName,
-                            hiddenProfiles = AuthManager.getHiddenProfiles().toSet(),
-                            errorMessage = null,
-                        )
-                    }
-                } else if (profilesResult is NetworkResult.Success) {
-                    val activeName = (activeResult as? NetworkResult.Success)?.data?.active
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            isRefreshing = false,
-                            profiles = profilesResult.data.profiles.orEmpty(),
-                            activeProfileName = activeName ?: it.activeProfileName,
-                            hiddenProfiles = AuthManager.getHiddenProfiles().toSet(),
-                            errorMessage = null,
-                        )
-                    }
+                    null
                 } else {
-                    val err =
-                        (profilesResult as? NetworkResult.Failure)?.error?.message
-                            ?: "Failed to load bots"
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            isRefreshing = false,
-                            errorMessage = err,
-                        )
+                    withTimeoutOrNull(METADATA_TIMEOUT_MS) {
+                        safeApiCall(retries = 0) { ApiClient.hermesApi.getProfiles() }
                     }
                 }
+            val activeResult = activeDeferred.await()
+            // Switched server while this was in flight: its answer belongs to the old one.
+            if (serverScope() != server) return@coroutineScope
+
+            if (profilesWithMeta != null) {
+                val activeName = (activeResult as? NetworkResult.Success)?.data?.active
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        profiles = profilesWithMeta,
+                        activeProfileName = activeName ?: it.activeProfileName,
+                        hiddenProfiles = AuthManager.getHiddenProfiles().toSet(),
+                        errorMessage = null,
+                    )
+                }
+            } else if (profilesResult is NetworkResult.Success) {
+                val activeName = (activeResult as? NetworkResult.Success)?.data?.active
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        profiles = profilesResult.data.profiles.orEmpty(),
+                        activeProfileName = activeName ?: it.activeProfileName,
+                        hiddenProfiles = AuthManager.getHiddenProfiles().toSet(),
+                        errorMessage = null,
+                    )
+                }
+            } else {
+                val err =
+                    (profilesResult as? NetworkResult.Failure)?.error?.message
+                        ?: "Failed to load bots"
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        errorMessage = err,
+                    )
+                }
             }
-            if (_uiState.value.errorMessage == null) afterRosterLoaded(_uiState.value.profiles)
-            thenMarkSeen?.let { name ->
-                _uiState.value.profiles
-                    .firstOrNull { it.name == name }
-                    ?.let(::markSeen)
-            }
+        }
+        // The rest only runs while the answer is still for this server.
+        if (serverScope() != server) return
+        if (_uiState.value.errorMessage == null) afterRosterLoaded(_uiState.value.profiles)
+        markSeenAfterLoad?.let { name ->
+            markSeenAfterLoad = null
+            _uiState.value.profiles
+                .firstOrNull { it.name == name }
+                ?.let(::markSeen)
         }
     }
 
-    /** Pictures, "needs you" and unread baselines, refreshed alongside the roster. */
-    private suspend fun afterRosterLoaded(profiles: List<ProfileInfo>) {
+    private fun serverScope(): String = runCatching { AuthManager.baseUrl() }.getOrDefault("")
+
+    /**
+     * Pictures, "needs you", previews and unread baselines. Each runs on its own, so a slow
+     * picture never holds up "needs you"; one still running from the last refresh is left
+     * to finish rather than started again.
+     */
+    private fun afterRosterLoaded(profiles: List<ProfileInfo>) {
         recordSeenBaselines(profiles)
-        refreshAvatars(profiles)
-        refreshNeedsYou(profiles)
-        refreshPreviews(profiles)
+        if (enrichJobs.any { it.isActive }) return
+        enrichJobs =
+            listOf(
+                viewModelScope.launch(ioDispatcher) { refreshNeedsYou(profiles) },
+                viewModelScope.launch(ioDispatcher) { refreshAvatars(profiles) },
+                viewModelScope.launch(ioDispatcher) { refreshPreviews(profiles) },
+            )
     }
 
     /** Message count each preview was fetched at, so only bots with new messages are re-read. */
@@ -371,13 +420,15 @@ class BotsViewModel(
                         async(ioDispatcher) {
                             val sessionId = p.canonical_session?.let { it.resolved_id ?: it.id }.orEmpty()
                             val result =
-                                safeApiCall(retries = 0) {
-                                    ApiClient.hermesApi.getSessionMessages(
-                                        sessionId,
-                                        limit = PREVIEW_PAGE,
-                                        order = "latest",
-                                        profile = p.name,
-                                    )
+                                withTimeoutOrNull(METADATA_TIMEOUT_MS) {
+                                    safeApiCall(retries = 0) {
+                                        ApiClient.hermesApi.getSessionMessages(
+                                            sessionId,
+                                            limit = PREVIEW_PAGE,
+                                            order = "latest",
+                                            profile = p.name,
+                                        )
+                                    }
                                 }
                             val preview =
                                 (result as? NetworkResult.Success)
@@ -423,8 +474,11 @@ class BotsViewModel(
             runCatching {
                 val result =
                     HermesWsClient
-                        .request(WsMethods.SESSION_ACTIVE_LIST, suppressErrorEvent = true)
-                        .await()
+                        .request(
+                            WsMethods.SESSION_ACTIVE_LIST,
+                            timeoutMs = METADATA_TIMEOUT_MS,
+                            suppressErrorEvent = true,
+                        ).await()
                         .asJsonObject()
                 result
                     ?.get("sessions")
@@ -873,6 +927,9 @@ private const val RPC_METHOD_NOT_FOUND = -32601
 /** Newest messages read per bot for its preview (tool rows sit between the text ones). */
 private const val PREVIEW_PAGE = 6
 private const val GENERATE_TIMEOUT_MS = 180_000L
+
+/** Roster, status, preview and picture reads: short, so a slow server can't stall the list. */
+internal const val METADATA_TIMEOUT_MS = 10_000L
 internal const val GENERATE_UNAVAILABLE = "No image generator is set up on Hermes"
 
 private fun Any?.asJsonObject(): JsonObject? =
