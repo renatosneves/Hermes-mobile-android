@@ -360,27 +360,8 @@ class BotsViewModel(
     }
 
     private suspend fun refreshAvatars(profiles: List<ProfileInfo>) {
-        val current = _uiState.value.avatars
-        val next = current.filterKeys { name -> profiles.any { it.name == name && it.has_avatar != false } }
-        val missing = profiles.filter { it.has_avatar == true && it.name !in next }
-        val fetched =
-            missing.mapNotNull { profile ->
-                val result =
-                    runCatching {
-                        HermesWsClient
-                            .request(
-                                WsMethods.PROFILES_GET_ASSET,
-                                mapOf("name" to profile.name, "asset" to "avatar"),
-                                suppressErrorEvent = true,
-                            ).await()
-                            .asJsonObject()
-                    }.getOrNull()
-                val data = result?.string("data")
-                if (result?.bool("found") == true && !data.isNullOrBlank()) profile.name to data else null
-            }
-        if (fetched.isNotEmpty() || next.size != current.size) {
-            _uiState.update { it.copy(avatars = next + fetched) }
-        }
+        val loaded = BotAvatarCache.load(profiles).filterKeys { name -> profiles.any { it.name == name } }
+        if (loaded != _uiState.value.avatars) _uiState.update { it.copy(avatars = loaded) }
     }
 
     private suspend fun refreshNeedsYou(profiles: List<ProfileInfo>) {
@@ -420,6 +401,7 @@ class BotsViewModel(
                     mapOf("name" to name, "asset" to "avatar", "data" to image)
                 }
             HermesWsClient.request(WsMethods.PROFILES_SET_ASSET, params, suppressErrorEvent = true).await()
+            BotAvatarCache.put(name, image)
             _uiState.update {
                 it.copy(avatars = if (image == null) it.avatars - name else it.avatars + (name to image))
             }
