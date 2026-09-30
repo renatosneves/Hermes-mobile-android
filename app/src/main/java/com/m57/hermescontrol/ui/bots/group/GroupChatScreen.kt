@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -72,7 +73,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
@@ -94,7 +99,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.m57.hermescontrol.R
+import com.m57.hermescontrol.theme.BotsPalette
 import com.m57.hermescontrol.theme.LocalChatFontScale
+import com.m57.hermescontrol.ui.bots.BotAvatarCache
 import com.m57.hermescontrol.ui.bots.group.components.GroupChatComposer
 import com.m57.hermescontrol.ui.bots.group.components.GroupChatSettingsDialog
 import com.m57.hermescontrol.ui.bots.group.components.GroupMessageCard
@@ -173,177 +180,198 @@ fun GroupChatScreen(
         )
     }
 
-    HermesScaffold(
-        title = {
-            Column {
-                Text(
-                    text = state.groupName.ifBlank { groupName },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-                if (state.members.isNotEmpty()) {
-                    Text(
-                        text = stringResource(R.string.group_chat_members_count, state.members.size),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    var avatars by remember { mutableStateOf(BotAvatarCache.snapshot()) }
+    LaunchedEffect(state.members) {
+        if (state.members.isNotEmpty()) avatars = BotAvatarCache.load(state.members)
+    }
+    val membersByName = remember(state.members) { state.members.associateBy { it.name } }
+    val roomRows = remember(state.messages) { roomItems(state.messages) }
+
+    // Same designed space as the Bots home: navy pane, lavender glow, orbs for every bot.
+    val baseScheme = MaterialTheme.colorScheme
+    Box(
+        modifier =
+            modifier
+                .fillMaxSize()
+                .background(Brush.verticalGradient(listOf(BotsPalette.PaneTop, BotsPalette.PaneBottom)))
+                .drawBehind {
+                    drawRect(
+                        Brush.radialGradient(
+                            colors = listOf(RoomHue.copy(alpha = 0.2f), Color.Transparent),
+                            center = Offset(size.width / 2f, 0f),
+                            radius = size.width * 0.8f,
+                        ),
                     )
-                }
-            }
-        },
-        navigationIcon = NavIcon.Back(onBack),
-        actions = {
-            if (state.activeSpeaker != null) {
-                IconButton(
-                    onClick = { viewModel.stopGeneration() },
-                    modifier = Modifier.testTag("group_chat_stop_button"),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Stop,
-                        contentDescription = stringResource(R.string.group_chat_action_stop),
-                        tint = MaterialTheme.colorScheme.error,
+                    drawRect(
+                        Brush.radialGradient(
+                            colors = listOf(BotsPalette.GlowBottom.copy(alpha = 0.6f), Color.Transparent),
+                            center = Offset(size.width * 0.9f, size.height),
+                            radius = size.width * 0.6f,
+                        ),
                     )
-                }
-            }
-            IconButton(
-                onClick = { showSettingsDialog = true },
-                modifier = Modifier.testTag("group_chat_settings_button"),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Settings,
-                    contentDescription = stringResource(R.string.group_chat_action_settings),
-                )
-            }
-        },
-        modifier = modifier,
+                }.testTag("group_room"),
     ) {
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 8.dp)
-                    .imePadding(),
-        ) {
-            when {
-                state.isLoading -> {
-                    SkeletonListState(
-                        modifier =
-                            Modifier
-                                .weight(1f)
-                                .fillMaxWidth(),
+        MaterialTheme(colorScheme = BotsPalette.chatScheme(baseScheme, RoomHue)) {
+            HermesScaffold(
+                title = {
+                    RoomTitle(
+                        name = state.groupName.ifBlank { groupName },
+                        members = state.members,
+                        activeSpeaker = state.activeSpeaker,
+                        avatars = avatars,
                     )
-                }
-
-                state.errorMessage != null -> {
-                    ErrorState(
-                        message = state.errorMessage ?: "",
-                        onRetry = { viewModel.setGroup(groupName) },
-                        modifier =
-                            Modifier
-                                .weight(1f)
-                                .fillMaxWidth(),
-                    )
-                }
-
-                state.messages.isEmpty() -> {
-                    EmptyState(
-                        title = stringResource(R.string.group_chat_empty_title),
-                        subtitle = stringResource(R.string.group_chat_empty_subtitle),
-                        modifier =
-                            Modifier
-                                .weight(1f)
-                                .fillMaxWidth(),
-                    )
-                }
-
-                else -> {
-                    val currentDensity = LocalDensity.current
-                    val chatFontScale = LocalChatFontScale.current
-                    val chatDensity =
-                        remember(currentDensity, chatFontScale) {
-                            Density(
-                                density = currentDensity.density,
-                                fontScale = currentDensity.fontScale * chatFontScale,
+                },
+                navigationIcon = NavIcon.Back(onBack),
+                actions = {
+                    if (state.activeSpeaker != null) {
+                        IconButton(
+                            onClick = { viewModel.stopGeneration() },
+                            modifier = Modifier.testTag("group_chat_stop_button"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Stop,
+                                contentDescription = stringResource(R.string.group_chat_action_stop),
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                    IconButton(
+                        onClick = { showSettingsDialog = true },
+                        modifier = Modifier.testTag("group_chat_settings_button"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = stringResource(R.string.group_chat_action_settings),
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .padding(bottom = 8.dp)
+                            .imePadding(),
+                ) {
+                    when {
+                        state.isLoading -> {
+                            SkeletonListState(
+                                modifier =
+                                    Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth(),
                             )
                         }
 
-                    Box(
-                        modifier =
-                            Modifier
-                                .weight(1f)
-                                .fillMaxWidth(),
-                    ) {
-                        CompositionLocalProvider(LocalDensity provides chatDensity) {
-                            LazyColumn(
-                                state = listState,
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                items(
-                                    items = state.messages,
-                                    key = { it.id },
-                                ) { message ->
-                                    GroupMessageCard(message = message)
+                        state.errorMessage != null -> {
+                            ErrorState(
+                                message = state.errorMessage ?: "",
+                                onRetry = { viewModel.setGroup(groupName) },
+                                modifier =
+                                    Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth(),
+                            )
+                        }
+
+                        state.messages.isEmpty() -> {
+                            EmptyState(
+                                title = stringResource(R.string.group_chat_empty_title),
+                                subtitle = stringResource(R.string.group_chat_empty_subtitle),
+                                modifier =
+                                    Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth(),
+                            )
+                        }
+
+                        else -> {
+                            val currentDensity = LocalDensity.current
+                            val chatFontScale = LocalChatFontScale.current
+                            val chatDensity =
+                                remember(currentDensity, chatFontScale) {
+                                    Density(
+                                        density = currentDensity.density,
+                                        fontScale = currentDensity.fontScale * chatFontScale,
+                                    )
                                 }
 
-                                state.activeSpeaker?.let { speaker ->
-                                    item(key = "active_speaker") {
-                                        val thinkingText = stringResource(R.string.group_chat_thinking, speaker)
-                                        val isThinkingRtl = remember(thinkingText) { BidiUtils.isRtlText(thinkingText) }
-                                        Row(
-                                            modifier = Modifier.padding(start = 8.dp, top = 4.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(14.dp),
-                                                strokeWidth = 2.dp,
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text(
-                                                text = thinkingText,
-                                                style =
-                                                    MaterialTheme.typography.bodySmall.copy(
-                                                        textDirection =
-                                                            if (isThinkingRtl) {
-                                                                TextDirection.Rtl
-                                                            } else {
-                                                                TextDirection.Ltr
-                                                            },
-                                                    ),
-                                                color = MaterialTheme.colorScheme.primary,
-                                            )
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth(),
+                            ) {
+                                CompositionLocalProvider(LocalDensity provides chatDensity) {
+                                    LazyColumn(
+                                        state = listState,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        items(
+                                            items = roomRows,
+                                            key = { it.key },
+                                        ) { row ->
+                                            when (row) {
+                                                is RoomItem.Message -> {
+                                                    GroupMessageCard(
+                                                        message = row.message,
+                                                        imageUrl = avatars[row.message.senderName],
+                                                    )
+                                                }
+
+                                                is RoomItem.Passes -> {
+                                                    PassesRow(
+                                                        passes = row.messages,
+                                                        membersByName = membersByName,
+                                                        avatars = avatars,
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        state.activeSpeaker?.let { speaker ->
+                                            item(key = "active_speaker") {
+                                                ThinkingRow(
+                                                    speaker = speaker,
+                                                    member = state.members.firstOrNull { it.effectiveTitle == speaker },
+                                                    avatars = avatars,
+                                                )
+                                            }
                                         }
                                     }
                                 }
+
+                                ChatScrollToBottomFab(
+                                    show = !scrollController.isFollowingBottom && state.messages.isNotEmpty(),
+                                    pendingCount = scrollController.pendingCount,
+                                    onScrollToBottom = { scrollController.resumeFollowing() },
+                                )
                             }
                         }
-
-                        ChatScrollToBottomFab(
-                            show = !scrollController.isFollowingBottom && state.messages.isNotEmpty(),
-                            pendingCount = scrollController.pendingCount,
-                            onScrollToBottom = { scrollController.resumeFollowing() },
-                        )
                     }
+
+                    // ── COMPOSER ──
+                    val groupBots =
+                        remember(state.members) {
+                            state.members.distinctBy { it.name.lowercase() }
+                        }
+
+                    GroupChatComposer(
+                        inputFieldValue = inputFieldValue,
+                        onInputValueChange = { inputFieldValue = it },
+                        groupBots = groupBots,
+                        groupName = state.groupName.ifBlank { groupName },
+                        activeSpeaker = state.activeSpeaker,
+                        isFocused = isFocused,
+                        onFocusChanged = { isFocused = it },
+                        onSend = handleSend,
+                        onStop = { viewModel.stopGeneration() },
+                    )
                 }
             }
-
-            // ── COMPOSER ──
-            val groupBots =
-                remember(state.members) {
-                    state.members.distinctBy { it.name.lowercase() }
-                }
-
-            GroupChatComposer(
-                inputFieldValue = inputFieldValue,
-                onInputValueChange = { inputFieldValue = it },
-                groupBots = groupBots,
-                groupName = state.groupName.ifBlank { groupName },
-                activeSpeaker = state.activeSpeaker,
-                isFocused = isFocused,
-                onFocusChanged = { isFocused = it },
-                onSend = handleSend,
-                onStop = { viewModel.stopGeneration() },
-            )
         }
     }
 

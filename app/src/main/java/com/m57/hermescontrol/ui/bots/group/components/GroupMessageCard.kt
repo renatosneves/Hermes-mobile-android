@@ -35,6 +35,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
@@ -45,13 +46,16 @@ import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.m57.hermescontrol.R
+import com.m57.hermescontrol.theme.BotsPalette
+import com.m57.hermescontrol.ui.bots.BotOrb
+import com.m57.hermescontrol.ui.bots.BotsPresentation
 import com.m57.hermescontrol.ui.bots.group.CAPPED_SYSTEM_TEXT
 import com.m57.hermescontrol.ui.bots.group.GroupChatMessage
 import com.m57.hermescontrol.ui.bots.group.STOPPED_SYSTEM_TEXT
+import com.m57.hermescontrol.ui.bots.group.roomHue
 import com.m57.hermescontrol.ui.chat.MarkdownText
 import com.m57.hermescontrol.ui.chat.TokenEstimator
 import com.m57.hermescontrol.ui.chat.formatTimestamp
-import com.m57.hermescontrol.ui.common.BotAvatar
 import com.m57.hermescontrol.util.BidiUtils
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -60,6 +64,7 @@ import kotlinx.coroutines.launch
 fun GroupMessageCard(
     message: GroupChatMessage,
     modifier: Modifier = Modifier,
+    imageUrl: String? = null,
 ) {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
@@ -227,16 +232,20 @@ fun GroupMessageCard(
             modifier = modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Start,
         ) {
-            BotAvatar(
-                name = message.senderName,
-                avatar = message.avatarMeta,
+            val hue = roomHue(message.senderName, message.avatarMeta)
+            BotOrb(
+                initials = BotsPresentation.initials(message.senderDisplayName.ifBlank { message.senderName }),
+                hue = hue,
                 size = 32.dp,
-                showPresence = false,
+                working = message.isStreaming,
+                shapeKey = message.avatarMeta?.shape,
+                imageUrl = imageUrl,
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(topStart = 4.dp, topEnd = 16.dp, bottomEnd = 16.dp, bottomStart = 16.dp),
+                color = BotsPalette.Deck.copy(alpha = 0.85f),
+                border = BorderStroke(1.dp, hue.copy(alpha = 0.22f)),
                 modifier = Modifier.weight(1f, fill = false),
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
@@ -252,7 +261,7 @@ fun GroupMessageCard(
                                     },
                             ),
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = lerp(hue, BotsPalette.Fg, 0.15f),
                     )
                     if (message.toolCalls.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(4.dp))
@@ -287,7 +296,7 @@ fun GroupMessageCard(
                         SelectionContainer {
                             MarkdownText(
                                 text = message.text,
-                                textColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textColor = BotsPalette.Fg,
                             )
                         }
                     }
