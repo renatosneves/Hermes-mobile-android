@@ -149,8 +149,8 @@ class ServerEndpointTest {
     }
 
     @Test
-    fun `DEFAULT_BASE_URL is https localhost 9119`() {
-        assertEquals("https://127.0.0.1:9119/", ServerEndpoint.DEFAULT_BASE_URL)
+    fun `DEFAULT_BASE_URL is the Hermes gateway`() {
+        assertEquals("https://srv1959645.tail6507df.ts.net/", ServerEndpoint.DEFAULT_BASE_URL)
     }
 
     private inline fun <reified T : Throwable> assertThrows(block: () -> Unit) {

@@ -8,6 +8,7 @@ import com.m57.hermescontrol.data.config.ConnectionProfile
 import com.m57.hermescontrol.data.config.ServerStoreState
 import com.m57.hermescontrol.data.config.resolveBaseUrl
 import com.m57.hermescontrol.data.config.resolvedBaseUrl
+import com.m57.hermescontrol.data.remote.ServerEndpoint
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -138,9 +139,9 @@ class Issue647ProfileUrlTest {
         // top-level base URL, and the store-level display must all reflect the
         // login URL — never the hardcoded 127.0.0.1:9119 (issue #647).
         val loginUrl = "http://192.168.1.57:9119/"
-        val loopback = "https://127.0.0.1:9119/"
+        val loopback = ServerEndpoint.DEFAULT_BASE_URL
 
-        // Seed the Default profile the way the app does (host/port -> loopback).
+        // Seed the Default profile the way the app does (host/port -> default URL).
         AuthManager.ensureDefaultProfile()
         // Confirm the initial seed really is the loopback default.
         val seeded =

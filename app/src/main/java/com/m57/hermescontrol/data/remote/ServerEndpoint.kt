@@ -78,7 +78,8 @@ class ServerEndpoint private constructor(
             baseUrl.port == other.port
 
     companion object {
-        const val DEFAULT_BASE_URL = "https://127.0.0.1:9119/"
+        // Hard-coded to Renato's Hermes gateway (Tailscale) for now.
+        const val DEFAULT_BASE_URL = "https://srv1959645.tail6507df.ts.net/"
         const val CLEARTEXT_WARNING =
             "Cleartext HTTP exposes credentials and messages. " +
                 "Use HTTPS unless this is a trusted development network."

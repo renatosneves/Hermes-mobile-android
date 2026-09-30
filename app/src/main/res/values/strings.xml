@@ -91,6 +91,18 @@
     <string name="screen_profiles">Profiles</string>
     <string name="screen_bots">Bots</string>
     <string name="bots_active_now">Active Now</string>
+    <string name="bots_filter_all">All</string>
+    <string name="bots_filter_working">Working</string>
+    <string name="bots_nobody_working">No bot is working right now.</string>
+    <string name="bots_no_match">No bots match “%1$s”.</string>
+    <string name="bots_more">More</string>
+    <string name="bots_working_on">Working · %1$s</string>
+    <string name="bots_last_active">Active %1$s</string>
+    <string name="bots_pick_one">Pick a bot to start chatting.</string>
+    <plurals name="bots_count">
+        <item quantity="one">%d bot</item>
+        <item quantity="other">%d bots</item>
+    </plurals>
     <string name="bots_empty_title">No Bots Found</string>
     <string name="bots_empty_description">Create an agent profile to start using Bot Mode.</string>
     <string name="bots_search_placeholder">Search bots…</string>

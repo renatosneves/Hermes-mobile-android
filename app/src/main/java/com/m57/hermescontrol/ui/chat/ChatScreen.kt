@@ -164,6 +164,8 @@ fun ChatScreen(
     modifier: Modifier = Modifier,
     onOpenDrawer: (() -> Unit)? = null,
     sessionId: String? = null,
+    /** Replaces the chat title, e.g. with the bot header when the chat is embedded in the Bots home. */
+    titleOverride: (@Composable () -> Unit)? = null,
     viewModel: ChatViewModel = viewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -470,6 +472,10 @@ fun ChatScreen(
         modifier = modifier,
         pinTopBar = true,
         title = {
+            if (titleOverride != null) {
+                titleOverride()
+                return@HermesScaffold
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AutoScrollingTitleText(
                     text = state.chatTitle,
