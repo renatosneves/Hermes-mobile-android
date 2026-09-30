@@ -339,6 +339,7 @@ class BotsViewModel(
         description: String,
         shape: String,
         color: String,
+        imageUrl: String? = null,
         onSuccess: () -> Unit,
     ) {
         viewModelScope.launch(ioDispatcher) {
@@ -359,6 +360,7 @@ class BotsViewModel(
                             BotAvatarMeta(
                                 shape = shape,
                                 color = color,
+                                image_url = imageUrl,
                             ),
                     )
                 val botSoul = composeBotSoul(name, title, description)
@@ -380,6 +382,7 @@ class BotsViewModel(
         description: String,
         shape: String,
         color: String,
+        imageUrl: String? = null,
         onSuccess: () -> Unit,
     ) {
         viewModelScope.launch(ioDispatcher) {
@@ -389,10 +392,12 @@ class BotsViewModel(
                 existingMeta.copy(
                     title = title.ifBlank { null },
                     description = description.ifBlank { null },
+                    // Keep fields this editor doesn't touch (e.g. icon).
                     avatar =
-                        BotAvatarMeta(
+                        (existingMeta.avatar ?: BotAvatarMeta()).copy(
                             shape = shape,
                             color = color,
+                            image_url = imageUrl,
                         ),
                 )
             try {

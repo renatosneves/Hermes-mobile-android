@@ -11,6 +11,56 @@ internal object BotsPresentation {
     /** Gateway shown in the rail header. Hard-coded for now; later it comes from the server store. */
     const val GATEWAY_HOST = "srv1959645.tail6507df.ts.net"
 
+    /** Short gateway label for the rail header (the full host does not fit a narrow rail). */
+    val GATEWAY_LABEL = GATEWAY_HOST.substringBefore('.')
+
+    /** Default bot hues (same order as the mockup); a bot without a chosen colour gets one by hash. */
+    val HUE_HEX =
+        listOf(
+            "#B9A4FF",
+            "#4FC3F7",
+            "#5B8CFF",
+            "#FF7EB0",
+            "#3FD0A4",
+            "#FF9F5A",
+            "#9C7BFF",
+            "#2EC4D6",
+            "#9BD24F",
+            "#FF6B6B",
+            "#E87BE0",
+            "#D4C84A",
+        )
+
+    /** Colours offered when creating or editing a bot: the default hues first, then deeper tones. */
+    val COLOR_OPTIONS =
+        HUE_HEX +
+            listOf(
+                "#4F46E5",
+                "#2563EB",
+                "#0D9488",
+                "#16A34A",
+                "#D97706",
+                "#EA580C",
+                "#DC2626",
+                "#DB2777",
+                "#9333EA",
+                "#94A3B8",
+                "#4B5563",
+                "#F5F0E6",
+            )
+
+    val SHAPES = listOf("circle", "rounded", "square", "hexagon")
+
+    fun defaultHueHex(name: String): String = HUE_HEX[hueIndex(name, HUE_HEX.size)]
+
+    /** The bot's chosen colour, or its default hue. */
+    fun colorHex(profile: ProfileInfo): String =
+        profile
+            .botMeta()
+            ?.avatar
+            ?.color
+            ?.takeIf { it.isNotBlank() } ?: defaultHueHex(profile.name)
+
     /** A bot counts as working when it has touched a session this recently. */
     const val WORKING_WINDOW_SECONDS = 90.0
 

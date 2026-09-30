@@ -46,34 +46,20 @@ import com.m57.hermescontrol.data.model.ProfileInfo
 import com.m57.hermescontrol.theme.parseHexColor
 import com.m57.hermescontrol.ui.common.BotAvatar
 
-private val AVAILABLE_SHAPES = listOf("circle", "square", "rounded", "hexagon")
-private val PALETTE_COLORS =
-    listOf(
-        "#4F46E5", // Indigo
-        "#2563EB", // Blue
-        "#0D9488", // Teal
-        "#16A34A", // Green
-        "#D97706", // Amber
-        "#EA580C", // Orange
-        "#DC2626", // Red
-        "#DB2777", // Pink
-        "#9333EA", // Purple
-        "#4B5563", // Gray
-    )
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditBotBottomSheet(
     bot: ProfileInfo,
     onDismiss: () -> Unit,
-    onSave: (title: String, description: String, shape: String, color: String) -> Unit,
+    onSave: (title: String, description: String, shape: String, color: String, imageUrl: String?) -> Unit,
     onDelete: () -> Unit,
 ) {
     val meta = bot.botMeta()
     var title by remember { mutableStateOf(meta?.title ?: bot.effectiveTitle) }
     var description by remember { mutableStateOf(meta?.description ?: bot.effectiveDescription) }
     var selectedShape by remember { mutableStateOf(meta?.avatar?.shape ?: "circle") }
-    var selectedColor by remember { mutableStateOf(meta?.avatar?.color ?: PALETTE_COLORS[0]) }
+    var selectedColor by remember { mutableStateOf(BotsPresentation.colorHex(bot)) }
+    var selectedImage by remember { mutableStateOf(meta?.avatar?.image_url?.takeIf { it.isNotBlank() }) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     if (showDeleteConfirm) {
@@ -128,26 +114,6 @@ fun EditBotBottomSheet(
                 fontWeight = FontWeight.Bold,
             )
 
-            // Live Avatar Preview Header
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 12.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                BotAvatar(
-                    name = bot.name,
-                    avatar =
-                        BotAvatarMeta(
-                            shape = selectedShape,
-                            color = selectedColor,
-                        ),
-                    size = 64.dp,
-                    showPresence = false,
-                )
-            }
-
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
@@ -168,95 +134,21 @@ fun EditBotBottomSheet(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            Text(
-                text = stringResource(R.string.bots_create_avatar_shape),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            BotAppearanceEditor(
+                title = title,
+                shape = selectedShape,
+                colorHex = selectedColor,
+                imageUrl = selectedImage,
+                onShapeChange = { selectedShape = it },
+                onColorChange = { selectedColor = it },
+                onImageChange = { selectedImage = it },
             )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Row(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                AVAILABLE_SHAPES.forEach { shape ->
-                    FilterChip(
-                        selected = selectedShape == shape,
-                        onClick = { selectedShape = shape },
-                        label = { Text(shape.replaceFirstChar { it.uppercase() }) },
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Text(
-                text = stringResource(R.string.bots_create_avatar_color),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                PALETTE_COLORS.take(5).forEach { hex ->
-                    val color = parseHexColor(hex, Color.Unspecified)
-                    Box(
-                        modifier =
-                            Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(color)
-                                .clickable { selectedColor = hex }
-                                .then(
-                                    if (selectedColor == hex) {
-                                        Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                                    } else {
-                                        Modifier
-                                    },
-                                ),
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                PALETTE_COLORS.drop(5).forEach { hex ->
-                    val color = parseHexColor(hex, Color.Unspecified)
-                    Box(
-                        modifier =
-                            Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(color)
-                                .clickable { selectedColor = hex }
-                                .then(
-                                    if (selectedColor == hex) {
-                                        Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                                    } else {
-                                        Modifier
-                                    },
-                                ),
-                    )
-                }
-            }
 
             Spacer(modifier = Modifier.height(20.dp))
 
             Button(
                 onClick = {
-                    onSave(title.trim(), description.trim(), selectedShape, selectedColor)
+                    onSave(title.trim(), description.trim(), selectedShape, selectedColor, selectedImage)
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {

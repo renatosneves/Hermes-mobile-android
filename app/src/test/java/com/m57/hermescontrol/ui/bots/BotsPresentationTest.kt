@@ -58,4 +58,17 @@ class BotsPresentationTest {
         assertEquals("3h", BotsPresentation.relativeTime(now - 3 * 3600, now, utc, Locale.UK))
         assertEquals("9d", BotsPresentation.relativeTime(now - 9 * 86_400, now, utc, Locale.UK))
     }
+
+    @Test
+    fun `colour options include every default hue and a bot's chosen colour wins`() {
+        assertTrue(BotsPresentation.COLOR_OPTIONS.containsAll(BotsPresentation.HUE_HEX))
+        assertEquals(24, BotsPresentation.COLOR_OPTIONS.distinct().size)
+        val plain = ProfileInfo(name = "inbox")
+        assertEquals(BotsPresentation.defaultHueHex("inbox"), BotsPresentation.colorHex(plain))
+    }
+
+    @Test
+    fun `gateway label is the short host`() {
+        assertEquals("srv1959645", BotsPresentation.GATEWAY_LABEL)
+    }
 }

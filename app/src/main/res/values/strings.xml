@@ -99,6 +99,10 @@
     <string name="bots_working_on">Working · %1$s</string>
     <string name="bots_last_active">Active %1$s</string>
     <string name="bots_pick_one">Pick a bot to start chatting.</string>
+    <string name="bots_image_upload">Upload image</string>
+    <string name="bots_image_change">Change image</string>
+    <string name="bots_image_remove">Remove</string>
+    <string name="bots_image_error">That image could not be read. Try another one.</string>
     <plurals name="bots_count">
         <item quantity="one">%d bot</item>
         <item quantity="other">%d bots</item>

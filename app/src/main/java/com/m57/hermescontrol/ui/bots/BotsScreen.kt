@@ -112,13 +112,9 @@ private fun ProfileInfo.canonicalSessionId(): String? =
 
 private fun nowSeconds(): Double = System.currentTimeMillis() / 1000.0
 
-private fun hueFor(profile: ProfileInfo): Color {
-    val custom =
-        profile.botMeta()?.avatar?.color?.let { hex ->
-            runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrNull()
-        }
-    return custom ?: BotsPalette.Hues[BotsPresentation.hueIndex(profile.name, BotsPalette.Hues.size)]
-}
+private fun hueFor(profile: ProfileInfo): Color =
+    runCatching { Color(android.graphics.Color.parseColor(BotsPresentation.colorHex(profile))) }
+        .getOrDefault(BotsPalette.Hues[BotsPresentation.hueIndex(profile.name, BotsPalette.Hues.size)])
 
 private val Mono = FontFamily.Monospace
 
@@ -463,7 +459,7 @@ private fun RailHeader(
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    text = BotsPresentation.GATEWAY_HOST,
+                    text = BotsPresentation.GATEWAY_LABEL,
                     color = BotsPalette.Muted,
                     fontFamily = Mono,
                     fontSize = 10.5.sp,
@@ -698,6 +694,8 @@ private fun BotRow(
             size = 42.dp,
             working = working,
             presence = if (recent) OrbPresence.RECENT else OrbPresence.IDLE,
+            shapeKey = profile.botMeta()?.avatar?.shape,
+            imageUrl = profile.botMeta()?.avatar?.image_url,
         )
         Spacer(Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -860,6 +858,8 @@ private fun PaneTitle(
             hue = hue,
             size = 36.dp,
             working = working,
+            shapeKey = profile.botMeta()?.avatar?.shape,
+            imageUrl = profile.botMeta()?.avatar?.image_url,
         )
         Spacer(Modifier.width(8.dp))
         Column {
@@ -994,8 +994,8 @@ private fun BotsDialogs(
         EditBotBottomSheet(
             bot = bot,
             onDismiss = onDismissEdit,
-            onSave = { title, description, shape, color ->
-                viewModel.updateBotMeta(bot.name, title, description, shape, color) { onDismissEdit() }
+            onSave = { title, description, shape, color, imageUrl ->
+                viewModel.updateBotMeta(bot.name, title, description, shape, color, imageUrl) { onDismissEdit() }
             },
             onDelete = { viewModel.deleteBot(bot.name) { onDismissEdit() } },
         )
@@ -1004,8 +1004,8 @@ private fun BotsDialogs(
     if (showCreateDialog) {
         CreateBotDialog(
             onDismiss = onDismissCreate,
-            onCreate = { name, title, description, shape, color ->
-                viewModel.createBot(name, title, description, shape, color) { onDismissCreate() }
+            onCreate = { name, title, description, shape, color, imageUrl ->
+                viewModel.createBot(name, title, description, shape, color, imageUrl) { onDismissCreate() }
             },
         )
     }
