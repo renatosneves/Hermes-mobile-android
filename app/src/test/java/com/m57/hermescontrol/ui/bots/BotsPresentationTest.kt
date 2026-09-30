@@ -71,4 +71,33 @@ class BotsPresentationTest {
     fun `gateway label is the short host`() {
         assertEquals("srv1959645", BotsPresentation.GATEWAY_LABEL)
     }
+
+    @Test
+    fun `unread counts messages since last look and needs a baseline`() {
+        val bot = ProfileInfo(name = "a", canonical_session = CanonicalSessionInfo(id = "s", message_count = 12))
+        assertEquals(0, BotsPresentation.unreadCount(bot, null))
+        assertEquals(3, BotsPresentation.unreadCount(bot, 9))
+        assertEquals(0, BotsPresentation.unreadCount(bot, 15))
+        assertEquals("9+", BotsPresentation.unreadLabel(14))
+        assertEquals("4", BotsPresentation.unreadLabel(4))
+    }
+
+    @Test
+    fun `needs you matches waiting live sessions to their bot`() {
+        val inbox =
+            ProfileInfo(name = "inbox", canonical_session = CanonicalSessionInfo(id = "c1", resolved_id = "c2"))
+        val link = ProfileInfo(name = "link", worker_session = ProfileWorkerSummary(id = "w9"))
+        val profiles = listOf(inbox, link)
+        assertEquals(setOf("inbox"), BotsPresentation.needsYou(profiles, setOf("c2")))
+        assertEquals(setOf("link"), BotsPresentation.needsYou(profiles, setOf("w9", "other")))
+        assertTrue(BotsPresentation.needsYou(profiles, emptySet()).isEmpty())
+    }
+
+    @Test
+    fun `avatar prompt names the bot and its job without text`() {
+        val prompt = BotsPresentation.avatarPrompt("Inbox", "Gmail: triage, summaries and replies")
+        assertTrue(prompt.contains("\"Inbox\""))
+        assertTrue(prompt.contains("Gmail triage summaries"))
+        assertTrue(prompt.contains("no text"))
+    }
 }

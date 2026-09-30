@@ -43,7 +43,7 @@ enum class OrbPresence { NONE, RECENT, IDLE }
 
 /**
  * A bot's avatar on the Bots home: a lit orb in the bot's hue with its initials, a spinning
- * arc while it works, and an optional presence dot.
+ * arc while it works, a pulsing amber ring when it needs you, and an optional presence dot.
  */
 @Composable
 fun BotOrb(
@@ -56,8 +56,22 @@ fun BotOrb(
     team: Boolean = false,
     shapeKey: String? = null,
     imageUrl: String? = null,
+    attention: Boolean = false,
 ) {
     val shape = remember(shapeKey, size) { resolveAvatarShape(shapeKey, size) }
+    val pulse =
+        if (attention) {
+            val transition = rememberInfiniteTransition(label = "orb-attention")
+            val value by transition.animateFloat(
+                initialValue = 0.45f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+                label = "orb-attention-alpha",
+            )
+            value
+        } else {
+            0f
+        }
     val spin =
         if (working) {
             val transition = rememberInfiniteTransition(label = "orb-spin")
@@ -142,7 +156,14 @@ fun BotOrb(
         Canvas(modifier = Modifier.fillMaxSize()) {
             val orbRadius = (size.toPx()) / 2f
             val c = center
-            if (working) {
+            if (attention) {
+                drawCircle(
+                    color = BotsPalette.Attention.copy(alpha = pulse),
+                    radius = orbRadius + 3.dp.toPx(),
+                    center = c,
+                    style = Stroke(width = 2.dp.toPx()),
+                )
+            } else if (working) {
                 val ringRadius = orbRadius + 4.dp.toPx()
                 val stroke = 2.dp.toPx()
                 rotate(spin, pivot = c) {

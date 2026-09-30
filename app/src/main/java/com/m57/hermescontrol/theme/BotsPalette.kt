@@ -22,6 +22,12 @@ object BotsPalette {
     val Idle = Color(0xFF4A5388)
     val Ok = Color(0xFF5FE0A8)
     val You = Color(0xFFFFB547)
+
+    /** "Needs you": a bot waiting on an approval or an answer. */
+    val Attention = Color(0xFFFFB547)
+
+    /** Gateway unreachable. */
+    val Offline = Color(0xFFFF6B6B)
     val GlowTop = Color(0xFF1B2458)
     val GlowBottom = Color(0xFF2A1B45)
 

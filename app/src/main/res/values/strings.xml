@@ -99,6 +99,16 @@
     <string name="bots_working_on">Working · %1$s</string>
     <string name="bots_last_active">Active %1$s</string>
     <string name="bots_pick_one">Pick a bot to start chatting.</string>
+    <string name="bots_image_generate">Generate</string>
+    <string name="bots_image_generating">Generating… this can take a minute</string>
+    <string name="bots_image_generate_error">Couldn\'t generate: %1$s</string>
+    <string name="bots_needs_you">Needs you</string>
+    <string name="bots_waiting_for_you">Waiting for you</string>
+    <string name="bots_unread">%1$s new</string>
+    <string name="bots_all_room">All bots</string>
+    <string name="bots_all_room_hint">Everyone in one room · @mention to pick who answers</string>
+    <string name="bots_gateway_online">Connected to %1$s</string>
+    <string name="bots_gateway_offline">Can\'t reach %1$s</string>
     <string name="bots_image_upload">Upload image</string>
     <string name="bots_image_change">Change image</string>
     <string name="bots_image_remove">Remove</string>

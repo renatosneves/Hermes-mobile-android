@@ -31,6 +31,13 @@ object WsMethods {
     const val SESSION_USAGE = "session.usage"
     const val PROFILES_CONFIGURE = "profiles.configure"
     const val PROFILES_LIST = "profiles.list"
+
+    /** Profile picture store (``assets/avatar.*``), shared with the desktop app. */
+    const val PROFILES_SET_ASSET = "profiles.set_asset"
+    const val PROFILES_GET_ASSET = "profiles.get_asset"
+
+    /** Server-side image generation, returned as a data URL (avatar pickers). */
+    const val IMAGE_GENERATE = "image.generate"
     const val MODEL_OPTIONS = "model.options"
 
     // ── Projects ──────────────────────────────────────────────────────────

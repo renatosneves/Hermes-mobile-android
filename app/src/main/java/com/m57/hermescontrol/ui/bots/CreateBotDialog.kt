@@ -51,6 +51,7 @@ fun CreateBotDialog(
         color: String,
         imageUrl: String?,
     ) -> Unit,
+    onGenerate: (suspend (String) -> Result<String>)? = null,
 ) {
     var name by remember { mutableStateOf("") }
     var title by remember { mutableStateOf("") }
@@ -118,6 +119,8 @@ fun CreateBotDialog(
                     onShapeChange = { selectedShape = it },
                     onColorChange = { selectedColor = it },
                     onImageChange = { selectedImage = it },
+                    generatePrompt = BotsPresentation.avatarPrompt(title.ifBlank { name }, description),
+                    onGenerate = onGenerate,
                 )
             }
         },

@@ -8,10 +8,10 @@ import java.util.Locale
 
 /** Pure helpers behind the Bots home rows, kept apart from Compose so they can be unit-tested. */
 internal object BotsPresentation {
-    /** Gateway shown in the rail header. Hard-coded for now; later it comes from the server store. */
+    /** Gateway shown in the rail's menu. Hard-coded for now; later it comes from the server store. */
     const val GATEWAY_HOST = "srv1959645.tail6507df.ts.net"
 
-    /** Short gateway label for the rail header (the full host does not fit a narrow rail). */
+    /** Short gateway label (the full host does not fit a narrow rail). */
     val GATEWAY_LABEL = GATEWAY_HOST.substringBefore('.')
 
     /** Default bot hues (same order as the mockup); a bot without a chosen colour gets one by hash. */
@@ -162,6 +162,54 @@ internal object BotsPresentation {
                 "${minutes / (24 * 60)}d"
             }
         }
+    }
+
+    /** Name of the pinned room that seats every visible bot (the group chat falls back to all bots). */
+    const val ALL_BOTS_ROOM = "All bots"
+
+    /** Messages in the bot's main conversation, used to count what's new since you last looked. */
+    fun messageCount(profile: ProfileInfo): Int? =
+        profile.canonical_session?.message_count ?: profile.last_session?.message_count
+
+    /** New messages since [seen]; nothing when we have no baseline yet. */
+    fun unreadCount(
+        profile: ProfileInfo,
+        seen: Int?,
+    ): Int {
+        val count = messageCount(profile) ?: return 0
+        if (seen == null) return 0
+        return (count - seen).coerceAtLeast(0)
+    }
+
+    fun unreadLabel(count: Int): String = if (count > 9) "9+" else count.toString()
+
+    /** Every session id the roster knows for this bot, to match live sessions back to it. */
+    fun sessionKeys(profile: ProfileInfo): Set<String> =
+        setOfNotNull(
+            profile.canonical_session?.id,
+            profile.canonical_session?.resolved_id,
+            profile.last_session?.id,
+            profile.worker_session?.id,
+        ).filter { it.isNotBlank() }.toSet()
+
+    /** Bots with a live session waiting on you (an approval or a question). */
+    fun needsYou(
+        profiles: List<ProfileInfo>,
+        waitingSessionKeys: Set<String>,
+    ): Set<String> {
+        if (waitingSessionKeys.isEmpty()) return emptySet()
+        return profiles.filter { p -> sessionKeys(p).any { it in waitingSessionKeys } }.map { it.name }.toSet()
+    }
+
+    /** Prompt for "Generate avatar": a simple icon that suits the bot's job. */
+    fun avatarPrompt(
+        title: String,
+        description: String,
+    ): String {
+        val role = shortSummary(description, maxWords = 8).ifBlank { "a helpful assistant" }
+        return "A friendly, minimal avatar icon for an AI assistant called \"${title.ifBlank { "Bot" }}\" " +
+            "whose job is: $role. Flat vector style, one bold centred symbol, soft gradient background, " +
+            "no text, no letters, square."
     }
 
     /** What the bot is doing right now, if we know: the worker's or latest session's title. */

@@ -28,6 +28,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Image
@@ -50,6 +51,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -64,8 +66,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 
-/** Side length of the stored bot image; small enough to live inside the bot's ui_meta. */
-private const val BOT_IMAGE_PX = 192
+/** Side length of the stored bot image: sharp on a large orb, small to sync. */
+private const val BOT_IMAGE_PX = 256
 
 /**
  * Shared look editor for creating and editing a bot: live preview, shape, colour (the same
@@ -81,16 +83,22 @@ fun BotAppearanceEditor(
     onColorChange: (String) -> Unit,
     onImageChange: (String?) -> Unit,
     modifier: Modifier = Modifier,
+    generatePrompt: String? = null,
+    onGenerate: (suspend (String) -> Result<String>)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var encoding by remember { mutableStateOf(false) }
+    var generating by remember { mutableStateOf(false) }
     var imageError by remember { mutableStateOf(false) }
+    var generateError by remember { mutableStateOf<String?>(null) }
+    val busy = encoding || generating
     val picker =
         rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
             if (uri != null) {
                 encoding = true
                 imageError = false
+                generateError = null
                 scope.launch {
                     val encoded = withContext(Dispatchers.IO) { encodeBotImage(context, uri) }
                     encoding = false
@@ -109,34 +117,75 @@ fun BotAppearanceEditor(
                 shapeKey = shape,
                 imageUrl = imageUrl,
             )
-            if (encoding) CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
+            if (busy) CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
         }
 
-        Row(
+        FlowRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         ) {
             OutlinedButton(
                 onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                enabled = !encoding,
+                enabled = !busy,
+                modifier = Modifier.testTag("bot_image_upload"),
             ) {
                 Icon(Icons.Filled.Image, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(stringResource(if (imageUrl == null) R.string.bots_image_upload else R.string.bots_image_change))
             }
-            if (imageUrl != null) {
-                Spacer(Modifier.width(8.dp))
-                TextButton(onClick = { onImageChange(null) }) {
-                    Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(stringResource(R.string.bots_image_remove))
+            if (onGenerate != null && generatePrompt != null) {
+                OutlinedButton(
+                    onClick = {
+                        generating = true
+                        imageError = false
+                        generateError = null
+                        scope.launch {
+                            val result = onGenerate(generatePrompt)
+                            val encoded =
+                                result.getOrNull()?.let { data ->
+                                    withContext(Dispatchers.Default) { encodeBotImage(data) }
+                                }
+                            generating = false
+                            if (encoded != null) {
+                                onImageChange(encoded)
+                            } else {
+                                generateError = result.exceptionOrNull()?.message.orEmpty()
+                            }
+                        }
+                    },
+                    enabled = !busy,
+                    modifier = Modifier.testTag("bot_image_generate"),
+                ) {
+                    Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.bots_image_generate))
                 }
             }
         }
-        if (imageError) {
+        if (imageUrl != null) {
+            TextButton(
+                onClick = { onImageChange(null) },
+                enabled = !busy,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            ) {
+                Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(stringResource(R.string.bots_image_remove))
+            }
+        }
+        if (generating) {
             Text(
-                stringResource(R.string.bots_image_error),
+                stringResource(R.string.bots_image_generating),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
+        }
+        if (imageError || generateError != null) {
+            Text(
+                text =
+                    generateError?.let { stringResource(R.string.bots_image_generate_error, it.ifBlank { "?" }) }
+                        ?: stringResource(R.string.bots_image_error),
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.align(Alignment.CenterHorizontally),
@@ -234,25 +283,46 @@ internal fun encodeBotImage(
     runCatching {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-        val shortest = minOf(bounds.outWidth, bounds.outHeight)
-        if (shortest <= 0) return null
-        var sample = 1
-        while (shortest / (sample * 2) >= BOT_IMAGE_PX) sample *= 2
+        val sample = sampleSizeFor(bounds) ?: return null
         val decoded =
             context.contentResolver.openInputStream(uri)?.use {
                 BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
             } ?: return null
-        val upright = applyExifOrientation(context, uri, decoded)
-        val side = minOf(upright.width, upright.height)
-        val square = Bitmap.createBitmap(upright, (upright.width - side) / 2, (upright.height - side) / 2, side, side)
-        val scaled = Bitmap.createScaledBitmap(square, BOT_IMAGE_PX, BOT_IMAGE_PX, true)
-        val bytes =
-            ByteArrayOutputStream().use { out ->
-                scaled.compress(Bitmap.CompressFormat.JPEG, 82, out)
-                out.toByteArray()
-            }
-        "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+        squareJpegDataUrl(applyExifOrientation(context, uri, decoded))
     }.getOrNull()
+
+/** Shrinks a generated image (a data URL) the same way as a picked one. */
+internal fun encodeBotImage(dataUrl: String): String? =
+    runCatching {
+        val bytes = Base64.decode(dataUrl.substringAfter(","), Base64.DEFAULT)
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val sample = sampleSizeFor(bounds) ?: return null
+        val decoded =
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+                ?: return null
+        squareJpegDataUrl(decoded)
+    }.getOrNull()
+
+private fun sampleSizeFor(bounds: BitmapFactory.Options): Int? {
+    val shortest = minOf(bounds.outWidth, bounds.outHeight)
+    if (shortest <= 0) return null
+    var sample = 1
+    while (shortest / (sample * 2) >= BOT_IMAGE_PX) sample *= 2
+    return sample
+}
+
+private fun squareJpegDataUrl(upright: Bitmap): String {
+    val side = minOf(upright.width, upright.height)
+    val square = Bitmap.createBitmap(upright, (upright.width - side) / 2, (upright.height - side) / 2, side, side)
+    val scaled = Bitmap.createScaledBitmap(square, BOT_IMAGE_PX, BOT_IMAGE_PX, true)
+    val bytes =
+        ByteArrayOutputStream().use { out ->
+            scaled.compress(Bitmap.CompressFormat.JPEG, 85, out)
+            out.toByteArray()
+        }
+    return "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+}
 
 /** Camera photos often store rotation in EXIF rather than in the pixels; honour it before cropping. */
 private fun applyExifOrientation(

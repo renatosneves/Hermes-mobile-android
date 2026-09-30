@@ -53,13 +53,20 @@ fun EditBotBottomSheet(
     onDismiss: () -> Unit,
     onSave: (title: String, description: String, shape: String, color: String, imageUrl: String?) -> Unit,
     onDelete: () -> Unit,
+    currentImage: String? =
+        bot
+            .botMeta()
+            ?.avatar
+            ?.image_url
+            ?.takeIf { it.isNotBlank() },
+    onGenerate: (suspend (String) -> Result<String>)? = null,
 ) {
     val meta = bot.botMeta()
     var title by remember { mutableStateOf(meta?.title ?: bot.effectiveTitle) }
     var description by remember { mutableStateOf(meta?.description ?: bot.effectiveDescription) }
     var selectedShape by remember { mutableStateOf(meta?.avatar?.shape ?: "circle") }
     var selectedColor by remember { mutableStateOf(BotsPresentation.colorHex(bot)) }
-    var selectedImage by remember { mutableStateOf(meta?.avatar?.image_url?.takeIf { it.isNotBlank() }) }
+    var selectedImage by remember(currentImage) { mutableStateOf(currentImage) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     if (showDeleteConfirm) {
@@ -142,6 +149,8 @@ fun EditBotBottomSheet(
                 onShapeChange = { selectedShape = it },
                 onColorChange = { selectedColor = it },
                 onImageChange = { selectedImage = it },
+                generatePrompt = BotsPresentation.avatarPrompt(title, description),
+                onGenerate = onGenerate,
             )
 
             Spacer(modifier = Modifier.height(20.dp))

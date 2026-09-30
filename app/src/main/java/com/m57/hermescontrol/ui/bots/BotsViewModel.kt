@@ -28,8 +28,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
 
 enum class BotsTab {
@@ -54,7 +57,22 @@ data class BotsUiState(
     val selectedTab: BotsTab = BotsTab.BOTS,
     val errorMessage: String? = null,
     val toastMessage: String? = null,
+    /** Bot pictures from the server's avatar store, by bot name (data URLs). */
+    val avatars: Map<String, String> = emptyMap(),
+    /** Bots with a live session waiting on you (approval or question). */
+    val needsYou: Set<String> = emptySet(),
+    /** Message counts at the time you last opened each bot. */
+    val seenCounts: Map<String, Int> = emptyMap(),
 ) {
+    /** The picture to show for a bot: the server's avatar store first, then an older inline image. */
+    fun imageFor(profile: ProfileInfo): String? =
+        avatars[profile.name]
+            ?: profile
+                .botMeta()
+                ?.avatar
+                ?.image_url
+                ?.takeIf { it.isNotBlank() }
+
     val hasHiddenBots: Boolean
         get() = profiles.any { it.isHidden || it.name in hiddenProfiles }
 
@@ -228,7 +246,10 @@ class BotsViewModel(
         }
     }
 
-    fun loadBots(isRefresh: Boolean = false) {
+    fun loadBots(
+        isRefresh: Boolean = false,
+        thenMarkSeen: String? = null,
+    ) {
         _uiState.update {
             if (isRefresh) {
                 it.copy(isRefreshing = true, errorMessage = null)
@@ -305,8 +326,143 @@ class BotsViewModel(
                     }
                 }
             }
+            if (_uiState.value.errorMessage == null) afterRosterLoaded(_uiState.value.profiles)
+            thenMarkSeen?.let { name ->
+                _uiState.value.profiles
+                    .firstOrNull { it.name == name }
+                    ?.let(::markSeen)
+            }
         }
     }
+
+    /** Pictures, "needs you" and unread baselines, refreshed alongside the roster. */
+    private suspend fun afterRosterLoaded(profiles: List<ProfileInfo>) {
+        recordSeenBaselines(profiles)
+        refreshAvatars(profiles)
+        refreshNeedsYou(profiles)
+    }
+
+    private fun recordSeenBaselines(profiles: List<ProfileInfo>) {
+        val seen = BotSeenStore.all()
+        for (profile in profiles) {
+            val count = BotsPresentation.messageCount(profile) ?: continue
+            if (profile.name !in seen) BotSeenStore.put(profile.name, count)
+        }
+        _uiState.update { it.copy(seenCounts = BotSeenStore.all()) }
+    }
+
+    /** Marks a bot's conversation as read up to its current message count. */
+    fun markSeen(profile: ProfileInfo) {
+        val count = BotsPresentation.messageCount(profile) ?: return
+        if (_uiState.value.seenCounts[profile.name] == count) return
+        BotSeenStore.put(profile.name, count)
+        _uiState.update { it.copy(seenCounts = BotSeenStore.all()) }
+    }
+
+    private suspend fun refreshAvatars(profiles: List<ProfileInfo>) {
+        val current = _uiState.value.avatars
+        val next = current.filterKeys { name -> profiles.any { it.name == name && it.has_avatar != false } }
+        val missing = profiles.filter { it.has_avatar == true && it.name !in next }
+        val fetched =
+            missing.mapNotNull { profile ->
+                val result =
+                    runCatching {
+                        HermesWsClient
+                            .request(
+                                WsMethods.PROFILES_GET_ASSET,
+                                mapOf("name" to profile.name, "asset" to "avatar"),
+                                suppressErrorEvent = true,
+                            ).await()
+                            .asJsonObject()
+                    }.getOrNull()
+                val data = result?.string("data")
+                if (result?.bool("found") == true && !data.isNullOrBlank()) profile.name to data else null
+            }
+        if (fetched.isNotEmpty() || next.size != current.size) {
+            _uiState.update { it.copy(avatars = next + fetched) }
+        }
+    }
+
+    private suspend fun refreshNeedsYou(profiles: List<ProfileInfo>) {
+        val waiting =
+            runCatching {
+                val result =
+                    HermesWsClient
+                        .request(WsMethods.SESSION_ACTIVE_LIST, suppressErrorEvent = true)
+                        .await()
+                        .asJsonObject()
+                result
+                    ?.get("sessions")
+                    ?.let { it as? JsonArray }
+                    .orEmpty()
+                    .mapNotNull { it as? JsonObject }
+                    .filter { it.string("status") == "waiting" }
+                    .flatMap { listOfNotNull(it.string("session_key"), it.string("id")) }
+                    .toSet()
+            }.getOrNull() ?: return
+        val names = BotsPresentation.needsYou(profiles, waiting)
+        if (names != _uiState.value.needsYou) _uiState.update { it.copy(needsYou = names) }
+    }
+
+    /**
+     * Stores (or clears, when [image] is null) a bot's picture in the server's avatar store,
+     * the same place the desktop app reads it from.
+     */
+    private suspend fun saveAvatarImage(
+        name: String,
+        image: String?,
+    ): AvatarSave =
+        try {
+            val params =
+                if (image == null) {
+                    mapOf("name" to name, "asset" to "avatar", "clear" to true)
+                } else {
+                    mapOf("name" to name, "asset" to "avatar", "data" to image)
+                }
+            HermesWsClient.request(WsMethods.PROFILES_SET_ASSET, params, suppressErrorEvent = true).await()
+            _uiState.update {
+                it.copy(avatars = if (image == null) it.avatars - name else it.avatars + (name to image))
+            }
+            AvatarSave.Stored
+        } catch (e: HermesWsClient.HermesRpcException) {
+            if (e.code == RPC_METHOD_NOT_FOUND) AvatarSave.Unsupported else AvatarSave.Failed(e.message.orEmpty())
+        } catch (e: Exception) {
+            AvatarSave.Failed(e.message.orEmpty())
+        }
+
+    /** Asks Hermes's image generator for a picture; the data URL, or an error to show. */
+    suspend fun generateAvatar(prompt: String): Result<String> =
+        try {
+            val result =
+                HermesWsClient
+                    .request(
+                        WsMethods.IMAGE_GENERATE,
+                        mapOf("prompt" to prompt, "aspect_ratio" to "square", "max_bytes" to 8_000_000),
+                        timeoutMs = GENERATE_TIMEOUT_MS,
+                        suppressErrorEvent = true,
+                    ).await()
+                    .asJsonObject()
+            val data = result?.string("image_data")
+            when {
+                result?.bool("available") == false -> {
+                    Result.failure(IllegalStateException(GENERATE_UNAVAILABLE))
+                }
+
+                result?.bool("success") == true && !data.isNullOrBlank() -> {
+                    Result.success(data)
+                }
+
+                else -> {
+                    Result.failure(IllegalStateException(result?.string("error") ?: "Generation failed"))
+                }
+            }
+        } catch (e: HermesWsClient.HermesRpcException) {
+            Result.failure(
+                IllegalStateException(if (e.code == RPC_METHOD_NOT_FOUND) GENERATE_UNAVAILABLE else e.message),
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
 
     fun setSearchQuery(query: String) {
         _uiState.update { it.copy(searchQuery = query) }
@@ -352,6 +508,7 @@ class BotsViewModel(
             val result = safeApiCall { ApiClient.hermesApi.createProfile(req) }
             if (result is NetworkResult.Success) {
                 // Configure UI metadata (avatar, custom title) and bot SOUL via RPC
+                val saved = if (imageUrl != null) saveAvatarImage(name, imageUrl) else AvatarSave.Stored
                 val botMeta =
                     BotRosterMeta(
                         title = title.ifBlank { null },
@@ -360,11 +517,13 @@ class BotsViewModel(
                             BotAvatarMeta(
                                 shape = shape,
                                 color = color,
-                                image_url = imageUrl,
+                                // Older servers have no avatar store: keep the picture inline there.
+                                image_url = imageUrl.takeIf { saved == AvatarSave.Unsupported },
                             ),
                     )
                 val botSoul = composeBotSoul(name, title, description)
-                wsClientConfigureBot(name, botMeta, soul = botSoul)
+                val error = configureAndCheck(name, botMeta, soul = botSoul)
+                reportSaveProblems(error, saved)
                 loadBots()
                 onSuccess()
             } else {
@@ -388,6 +547,18 @@ class BotsViewModel(
         viewModelScope.launch(ioDispatcher) {
             val bot = _uiState.value.profiles.find { it.name == name }
             val existingMeta = bot?.botMeta() ?: BotRosterMeta()
+            val existingInline = existingMeta.avatar?.image_url?.takeIf { it.isNotBlank() }
+            val shown = bot?.let { _uiState.value.imageFor(it) }
+            val saved = if (imageUrl != shown) saveAvatarImage(name, imageUrl) else null
+            val inlineImage =
+                when (saved) {
+                    // Now in the avatar store, so drop any older inline copy.
+                    AvatarSave.Stored -> null
+
+                    AvatarSave.Unsupported -> imageUrl
+
+                    is AvatarSave.Failed, null -> existingInline
+                }
             val updatedMeta =
                 existingMeta.copy(
                     title = title.ifBlank { null },
@@ -397,13 +568,11 @@ class BotsViewModel(
                         (existingMeta.avatar ?: BotAvatarMeta()).copy(
                             shape = shape,
                             color = color,
-                            image_url = imageUrl,
+                            image_url = inlineImage,
                         ),
                 )
-            try {
-                wsClientConfigureBot(name, updatedMeta).await()
-            } catch (_: Exception) {
-            }
+            val error = configureAndCheck(name, updatedMeta)
+            reportSaveProblems(error, saved)
             loadBots()
             onSuccess()
         }
@@ -580,6 +749,37 @@ class BotsViewModel(
         return lines.joinToString("\n")
     }
 
+    /** Saves the bot's look and details; an error to show, or null when the server kept them. */
+    private suspend fun configureAndCheck(
+        name: String,
+        meta: BotRosterMeta,
+        soul: String? = null,
+    ): String? =
+        try {
+            val result = wsClientConfigureBot(name, meta, soul).await().asJsonObject()
+            val applied = result?.get("applied") as? JsonObject
+            if ((applied?.get("ui_meta") as? JsonPrimitive)?.booleanOrNull == false) {
+                "the server didn't keep the bot's look"
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            e.message ?: "no answer from Hermes"
+        }
+
+    private fun reportSaveProblems(
+        configureError: String?,
+        saved: AvatarSave?,
+    ) {
+        val message =
+            when {
+                saved is AvatarSave.Failed -> "Couldn't save the picture: ${saved.reason.ifBlank { "unknown error" }}"
+                configureError != null -> "Couldn't save changes: $configureError"
+                else -> null
+            }
+        if (message != null) _uiState.update { it.copy(toastMessage = message) }
+    }
+
     private fun wsClientConfigureBot(
         name: String,
         meta: BotRosterMeta,
@@ -619,3 +819,30 @@ class BotsViewModel(
         )
     }
 }
+
+/** Outcome of saving a bot picture to the server's avatar store. */
+sealed interface AvatarSave {
+    data object Stored : AvatarSave
+
+    /** The server predates the avatar store. */
+    data object Unsupported : AvatarSave
+
+    data class Failed(
+        val reason: String,
+    ) : AvatarSave
+}
+
+private const val RPC_METHOD_NOT_FOUND = -32601
+private const val GENERATE_TIMEOUT_MS = 180_000L
+internal const val GENERATE_UNAVAILABLE = "No image generator is set up on Hermes"
+
+private fun Any?.asJsonObject(): JsonObject? =
+    when (this) {
+        null -> null
+        is JsonObject -> this
+        else -> runCatching { toJsonElement() as? JsonObject }.getOrNull()
+    }
+
+private fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
+
+private fun JsonObject.bool(key: String): Boolean? = (this[key] as? JsonPrimitive)?.booleanOrNull
