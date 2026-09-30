@@ -34,6 +34,9 @@ private const val CONTROL_TINT_ALPHA = 0.12f
 internal fun composerPalette(scheme: ColorScheme): ComposerPalette {
     val card = scheme.surfaceContainer
     val tint = scheme.onSurface.copy(alpha = CONTROL_TINT_ALPHA)
+    // Themed rooms (the Bots chats) paint their own backdrop and leave the surface see-through;
+    // an onSurface fill with a see-through glyph showed there as a blank white disc.
+    val seeThrough = scheme.surface.alpha < 1f
     return ComposerPalette(
         card = card,
         cardBorder = tint.compositeOver(scheme.background),
@@ -42,8 +45,8 @@ internal fun composerPalette(scheme: ColorScheme): ComposerPalette {
         control = tint.compositeOver(card),
         onControl = scheme.onSurface,
         onControlVariant = scheme.onSurfaceVariant,
-        action = scheme.onSurface,
-        onAction = scheme.surface,
+        action = if (seeThrough) scheme.primary else scheme.onSurface,
+        onAction = if (seeThrough) scheme.onPrimary else scheme.surface,
     )
 }
 

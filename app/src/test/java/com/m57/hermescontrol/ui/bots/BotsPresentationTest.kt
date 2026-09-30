@@ -100,4 +100,12 @@ class BotsPresentationTest {
         assertTrue(prompt.contains("Gmail triage summaries"))
         assertTrue(prompt.contains("no text"))
     }
+
+    @Test
+    fun `handle shows only when it differs from the title`() {
+        assertEquals(null, BotsPresentation.distinctHandle("work", "Work"))
+        assertEquals(null, BotsPresentation.distinctHandle("chief-of-staff", "Chief of Staff"))
+        assertEquals("@default", BotsPresentation.distinctHandle("default", "CEO"))
+        assertEquals("a b", BotsPresentation.rowDescription("  a\n  b "))
+    }
 }

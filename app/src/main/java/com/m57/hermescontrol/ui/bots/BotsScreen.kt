@@ -1,5 +1,6 @@
 package com.m57.hermescontrol.ui.bots
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.RepeatMode
@@ -140,13 +141,15 @@ fun BotsScreen(
     val scope = rememberCoroutineScope()
     var openBotName by rememberSaveable { mutableStateOf<String?>(null) }
     var openSessionId by rememberSaveable { mutableStateOf<String?>(null) }
+
+    // On a narrow screen (a folded Fold) the chat opens full screen inside this home, with the
+    // same look as the unfolded pane; back returns to the list.
+    var phoneChatOpen by rememberSaveable { mutableStateOf(false) }
     var editingBot by remember { mutableStateOf<ProfileInfo?>(null) }
     var disbandingGroup by remember { mutableStateOf<GroupInfo?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var showCreateGroupDialog by remember { mutableStateOf(false) }
     var now by remember { mutableDoubleStateOf(nowSeconds()) }
-    // On a phone the chat opens full screen; replies that arrived there count as read on return.
-    var returningFrom by rememberSaveable { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     remember { BotSeenStore.init(context) }
 
@@ -154,10 +157,6 @@ fun BotsScreen(
     DisableDrawerGestures()
 
     LaunchedEffect(Unit) {
-        returningFrom?.let { name ->
-            viewModel.loadBots(isRefresh = true, thenMarkSeen = name)
-            returningFrom = null
-        }
         while (true) {
             delay(REFRESH_INTERVAL_MS)
             now = nowSeconds()
@@ -192,21 +191,11 @@ fun BotsScreen(
             val twoPane = maxWidth >= TWO_PANE_MIN_WIDTH
             val onOpenBot: (ProfileInfo) -> Unit = { profile ->
                 scope.launch {
-                    if (twoPane) {
-                        openBotName = profile.name
-                        openSessionId = profile.canonicalSessionId()
-                    }
+                    openBotName = profile.name
+                    openSessionId = profile.canonicalSessionId()
                     viewModel.selectBot(profile)
                     viewModel.markSeen(profile)
-                    if (!twoPane) {
-                        returningFrom = profile.name
-                        val sessionId = profile.canonicalSessionId()
-                        if (sessionId != null) {
-                            NavigationController.openChatSession(sessionId)
-                        } else {
-                            NavigationController.navigateTo(com.m57.hermescontrol.ChatScreen)
-                        }
-                    }
+                    if (!twoPane) phoneChatOpen = true
                 }
             }
             val rail: @Composable (Modifier, String?) -> Unit = { railModifier, selectedName ->
@@ -240,10 +229,10 @@ fun BotsScreen(
                 )
             }
 
+            val selectedName = openBotName ?: state.activeProfileName
+            val selected = state.profiles.firstOrNull { it.name == selectedName }
+            val chatSessionId = openSessionId ?: selected?.canonicalSessionId()
             if (twoPane) {
-                val selectedName = openBotName ?: state.activeProfileName
-                val selected = state.profiles.firstOrNull { it.name == selectedName }
-                val chatSessionId = openSessionId ?: selected?.canonicalSessionId()
                 val railWidth = (maxWidth * 0.42f).coerceIn(300.dp, 460.dp)
                 Row(modifier = Modifier.fillMaxSize()) {
                     rail(Modifier.width(railWidth).fillMaxHeight(), selectedName)
@@ -262,6 +251,25 @@ fun BotsScreen(
                         baseScheme = baseScheme,
                     )
                 }
+            } else if (phoneChatOpen && selected != null) {
+                val closeChat = {
+                    phoneChatOpen = false
+                    viewModel.loadBots(isRefresh = true, thenMarkSeen = selected.name)
+                }
+                BackHandler(onBack = closeChat)
+                LaunchedEffect(selected.name, BotsPresentation.messageCount(selected)) {
+                    viewModel.markSeen(selected)
+                }
+                BotsChatPane(
+                    modifier = Modifier.fillMaxSize(),
+                    profile = selected,
+                    imageUrl = state.imageFor(selected),
+                    needsYou = selected.name in state.needsYou,
+                    sessionId = chatSessionId,
+                    now = now,
+                    baseScheme = baseScheme,
+                    onBack = closeChat,
+                )
             } else {
                 rail(Modifier.fillMaxSize(), null)
             }
@@ -736,6 +744,8 @@ private fun BotRow(
     val recent = BotsPresentation.isRecent(profile, now)
     val title = profile.effectiveTitle
     val summary = BotsPresentation.shortSummary(profile.effectiveDescription)
+    val description = BotsPresentation.rowDescription(profile.effectiveDescription)
+    val handle = BotsPresentation.distinctHandle(profile.name, title)
     val task = BotsPresentation.currentTask(profile)
     val time = BotsPresentation.relativeTime(BotsPresentation.lastActive(profile), now)
     val shape = RoundedCornerShape(14.dp)
@@ -762,7 +772,7 @@ private fun BotRow(
                         )
                     }
                 }.combinedClickable(onClick = onClick, onLongClick = onLongClick)
-                .padding(start = 6.dp, end = 10.dp, top = 4.dp, bottom = 4.dp)
+                .padding(start = 6.dp, end = 10.dp, top = 6.dp, bottom = 6.dp)
                 .testTag("bot_row_${profile.name}"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -778,10 +788,23 @@ private fun BotRow(
         )
         Spacer(Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
-            // Line 1: the name alone, so it gets the whole width; the time sits at the end.
+            // Line 1: the name (and its @handle when that says something new); the time sits at the end.
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = title,
+                    text =
+                        buildAnnotatedString {
+                            append(title)
+                            if (handle != null) {
+                                withStyle(
+                                    SpanStyle(
+                                        color = BotsPalette.Faint,
+                                        fontFamily = Mono,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Normal,
+                                    ),
+                                ) { append("  $handle") }
+                            }
+                        },
                     color = BotsPalette.Fg,
                     fontSize = 15.sp,
                     fontWeight = if (unread > 0) FontWeight.ExtraBold else FontWeight.Bold,
@@ -801,8 +824,8 @@ private fun BotRow(
                     )
                 }
             }
-            // Line 2: what needs attention, what it's doing, or @handle · summary.
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // Below: what needs attention, what it's doing, or the description over up to two lines.
+            Row(verticalAlignment = Alignment.Top) {
                 val line =
                     when {
                         needsYou -> {
@@ -814,14 +837,10 @@ private fun BotRow(
                         }
 
                         else -> {
-                            buildAnnotatedString {
-                                withStyle(SpanStyle(color = BotsPalette.Faint, fontFamily = Mono, fontSize = 11.sp)) {
-                                    append("@${profile.name}")
-                                }
-                                if (summary.isNotBlank()) append(" · $summary")
-                            }
+                            AnnotatedString(description.ifBlank { handle ?: "@${profile.name}" })
                         }
                     }
+                val calm = !needsYou && !working
                 Text(
                     text = line,
                     color =
@@ -832,7 +851,8 @@ private fun BotRow(
                         },
                     fontSize = 12.5.sp,
                     fontWeight = if (needsYou) FontWeight.SemiBold else FontWeight.Normal,
-                    maxLines = 1,
+                    lineHeight = 16.sp,
+                    maxLines = if (calm) 2 else 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
@@ -921,6 +941,7 @@ private fun BotsChatPane(
     sessionId: String?,
     now: Double,
     baseScheme: androidx.compose.material3.ColorScheme,
+    onBack: (() -> Unit)? = null,
 ) {
     val targetHue = profile?.let { hueFor(it) } ?: BotsPalette.Muted
     val hue by animateColorAsState(targetHue, animationSpec = tween(600), label = "pane-hue")
@@ -960,6 +981,7 @@ private fun BotsChatPane(
                         modifier = Modifier.fillMaxSize(),
                         onOpenDrawer = null,
                         sessionId = sessionId,
+                        onBack = onBack,
                         titleOverride = {
                             PaneTitle(profile = profile, hue = hue, now = now, imageUrl = imageUrl, needsYou = needsYou)
                         },

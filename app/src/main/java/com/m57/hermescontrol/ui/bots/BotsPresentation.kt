@@ -212,6 +212,18 @@ internal object BotsPresentation {
             "no text, no letters, square."
     }
 
+    /** The @handle, only when it adds something the title doesn't already say ("Work" / @work adds nothing). */
+    fun distinctHandle(
+        name: String,
+        title: String,
+    ): String? {
+        fun key(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
+        return if (key(name) == key(title)) null else "@$name"
+    }
+
+    /** The bot's description for its row, whitespace tidied; the row gives it two lines. */
+    fun rowDescription(description: String): String = description.replace(Regex("""\s+"""), " ").trim()
+
     /** What the bot is doing right now, if we know: the worker's or latest session's title. */
     fun currentTask(profile: ProfileInfo): String? =
         (

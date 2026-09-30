@@ -168,6 +168,8 @@ fun ChatScreen(
     sessionId: String? = null,
     /** Replaces the chat title, e.g. with the bot header when the chat is embedded in the Bots home. */
     titleOverride: (@Composable () -> Unit)? = null,
+    /** Shows a back arrow instead of the menu, e.g. a bot chat opened from the Bots list on a phone. */
+    onBack: (() -> Unit)? = null,
     viewModel: ChatViewModel = viewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -527,7 +529,7 @@ fun ChatScreen(
                 }
             }
         },
-        navigationIcon = onOpenDrawer?.let { NavIcon.Menu(it) },
+        navigationIcon = onBack?.let { NavIcon.Back(it) } ?: onOpenDrawer?.let { NavIcon.Menu(it) },
         snackbarHost = {
             SnackbarHost(snackbarHostState) { data ->
                 val statusColors = LocalHermesStatusColors.current
