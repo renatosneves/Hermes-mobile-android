@@ -51,6 +51,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -77,13 +78,20 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -112,13 +120,9 @@ private fun ProfileInfo.canonicalSessionId(): String? =
 
 private fun nowSeconds(): Double = System.currentTimeMillis() / 1000.0
 
-private fun hueFor(profile: ProfileInfo): Color {
-    val custom =
-        profile.botMeta()?.avatar?.color?.let { hex ->
-            runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrNull()
-        }
-    return custom ?: BotsPalette.Hues[BotsPresentation.hueIndex(profile.name, BotsPalette.Hues.size)]
-}
+private fun hueFor(profile: ProfileInfo): Color =
+    runCatching { Color(android.graphics.Color.parseColor(BotsPresentation.colorHex(profile))) }
+        .getOrDefault(BotsPalette.Hues[BotsPresentation.hueIndex(profile.name, BotsPalette.Hues.size)])
 
 private val Mono = FontFamily.Monospace
 
@@ -141,11 +145,19 @@ fun BotsScreen(
     var showCreateDialog by remember { mutableStateOf(false) }
     var showCreateGroupDialog by remember { mutableStateOf(false) }
     var now by remember { mutableDoubleStateOf(nowSeconds()) }
+    // On a phone the chat opens full screen; replies that arrived there count as read on return.
+    var returningFrom by rememberSaveable { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+    remember { BotSeenStore.init(context) }
 
     // Horizontal drags on this screen belong to its content; the drawer opens from the menu button.
     DisableDrawerGestures()
 
     LaunchedEffect(Unit) {
+        returningFrom?.let { name ->
+            viewModel.loadBots(isRefresh = true, thenMarkSeen = name)
+            returningFrom = null
+        }
         while (true) {
             delay(REFRESH_INTERVAL_MS)
             now = nowSeconds()
@@ -185,7 +197,9 @@ fun BotsScreen(
                         openSessionId = profile.canonicalSessionId()
                     }
                     viewModel.selectBot(profile)
+                    viewModel.markSeen(profile)
                     if (!twoPane) {
+                        returningFrom = profile.name
                         val sessionId = profile.canonicalSessionId()
                         if (sessionId != null) {
                             NavigationController.openChatSession(sessionId)
@@ -210,6 +224,11 @@ fun BotsScreen(
                             NavigationController.navigateTo(com.m57.hermescontrol.GroupChatKey(group.name))
                         }
                     },
+                    onOpenAllBots = {
+                        NavigationController.navigateTo(
+                            com.m57.hermescontrol.GroupChatKey(BotsPresentation.ALL_BOTS_ROOM),
+                        )
+                    },
                     onDisbandGroup = { disbandingGroup = it },
                     onCreateBot = { showCreateDialog = true },
                     onCreateGroup = { showCreateGroupDialog = true },
@@ -225,13 +244,19 @@ fun BotsScreen(
                 val selectedName = openBotName ?: state.activeProfileName
                 val selected = state.profiles.firstOrNull { it.name == selectedName }
                 val chatSessionId = openSessionId ?: selected?.canonicalSessionId()
-                val railWidth = (maxWidth * 0.38f).coerceIn(280.dp, 420.dp)
+                val railWidth = (maxWidth * 0.42f).coerceIn(300.dp, 460.dp)
                 Row(modifier = Modifier.fillMaxSize()) {
                     rail(Modifier.width(railWidth).fillMaxHeight(), selectedName)
                     Hinge()
+                    // The open conversation counts as read, including replies arriving while it's open.
+                    LaunchedEffect(selected?.name, selected?.let { BotsPresentation.messageCount(it) }) {
+                        selected?.let(viewModel::markSeen)
+                    }
                     BotsChatPane(
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                         profile = selected,
+                        imageUrl = selected?.let { state.imageFor(it) },
+                        needsYou = selected?.name in state.needsYou,
                         sessionId = chatSessionId,
                         now = now,
                         baseScheme = baseScheme,
@@ -273,6 +298,7 @@ private fun BotsRail(
     onOpenBot: (ProfileInfo) -> Unit,
     onEditBot: (ProfileInfo) -> Unit,
     onOpenGroup: (GroupInfo) -> Unit,
+    onOpenAllBots: () -> Unit,
     onDisbandGroup: (GroupInfo) -> Unit,
     onCreateBot: () -> Unit,
     onCreateGroup: () -> Unit,
@@ -281,7 +307,8 @@ private fun BotsRail(
 ) {
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var filter by rememberSaveable { mutableStateOf(RailFilter.ALL) }
-    val bots = state.displayProfiles
+    // Bots that need you float to the top.
+    val bots = state.displayProfiles.sortedByDescending { it.name in state.needsYou }
     val working = bots.filter { BotsPresentation.isWorking(it, now) }
     val groups = state.displayGroups
     val shownBots =
@@ -310,6 +337,7 @@ private fun BotsRail(
         RailHeader(
             botCount = state.profiles.size,
             refreshing = state.isRefreshing,
+            online = state.errorMessage == null,
             showHidden = state.showHidden,
             hasHidden = state.hasHiddenBots,
             searchOpen = searchOpen,
@@ -384,6 +412,17 @@ private fun BotsRail(
                     contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 2.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
+                    if (filter == RailFilter.ALL && state.searchQuery.isBlank() && bots.size > 1) {
+                        item(key = "all_bots_room") {
+                            GroupRow(
+                                modifier = Modifier.animateItem(),
+                                group = GroupInfo(name = stringResource(R.string.bots_all_room), members = bots),
+                                subtitle = stringResource(R.string.bots_all_room_hint),
+                                onClick = onOpenAllBots,
+                                onLongClick = onOpenAllBots,
+                            )
+                        }
+                    }
                     if (shownBots.isNotEmpty() && shownGroups.isNotEmpty()) {
                         item(key = "label_bots") { SectionLabel(stringResource(R.string.bots_tab_all)) }
                     }
@@ -393,6 +432,14 @@ private fun BotsRail(
                             profile = profile,
                             now = now,
                             selected = profile.name == selectedName,
+                            imageUrl = state.imageFor(profile),
+                            needsYou = profile.name in state.needsYou,
+                            unread =
+                                if (profile.name == selectedName) {
+                                    0
+                                } else {
+                                    BotsPresentation.unreadCount(profile, state.seenCounts[profile.name])
+                                },
                             onClick = { onOpenBot(profile) },
                             onLongClick = { onEditBot(profile) },
                         )
@@ -418,6 +465,7 @@ private fun BotsRail(
 private fun RailHeader(
     botCount: Int,
     refreshing: Boolean,
+    online: Boolean,
     showHidden: Boolean,
     hasHidden: Boolean,
     searchOpen: Boolean,
@@ -454,26 +502,24 @@ private fun RailHeader(
                 maxLines = 1,
                 softWrap = false,
             )
+            // Connection dot and bot count; the gateway's name lives in the menu.
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     Modifier
                         .size(6.dp)
                         .clip(CircleShape)
-                        .background(if (refreshing) BotsPalette.You else BotsPalette.Ok),
+                        .background(
+                            when {
+                                !online -> BotsPalette.Offline
+                                refreshing -> BotsPalette.You
+                                else -> BotsPalette.Ok
+                            },
+                        ).testTag("bots_gateway_dot"),
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    text = BotsPresentation.GATEWAY_HOST,
+                    text = pluralStringResource(R.plurals.bots_count, botCount, botCount),
                     color = BotsPalette.Muted,
-                    fontFamily = Mono,
-                    fontSize = 10.5.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false).testTag("bots_gateway"),
-                )
-                Text(
-                    text = " · " + pluralStringResource(R.plurals.bots_count, botCount, botCount),
-                    color = BotsPalette.Faint,
                     fontFamily = Mono,
                     fontSize = 10.5.sp,
                     maxLines = 1,
@@ -497,6 +543,30 @@ private fun RailHeader(
                 )
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            stringResource(
+                                if (online) R.string.bots_gateway_online else R.string.bots_gateway_offline,
+                                BotsPresentation.GATEWAY_LABEL,
+                            ),
+                            fontFamily = Mono,
+                            fontSize = 12.sp,
+                        )
+                    },
+                    leadingIcon = {
+                        Box(
+                            Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(if (online) BotsPalette.Ok else BotsPalette.Offline),
+                        )
+                    },
+                    enabled = false,
+                    onClick = {},
+                    modifier = Modifier.testTag("bots_gateway"),
+                )
+                HorizontalDivider()
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.bots_action_create)) },
                     leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
@@ -654,6 +724,9 @@ private fun BotRow(
     profile: ProfileInfo,
     now: Double,
     selected: Boolean,
+    imageUrl: String?,
+    needsYou: Boolean,
+    unread: Int,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -666,6 +739,7 @@ private fun BotRow(
     val task = BotsPresentation.currentTask(profile)
     val time = BotsPresentation.relativeTime(BotsPresentation.lastActive(profile), now)
     val shape = RoundedCornerShape(14.dp)
+    val accent = if (needsYou) BotsPalette.Attention else hue
 
     Row(
         modifier =
@@ -673,15 +747,15 @@ private fun BotRow(
                 .fillMaxWidth()
                 .clip(shape)
                 .background(
-                    if (selected) {
-                        Brush.horizontalGradient(listOf(hue.copy(alpha = 0.2f), Color.Transparent))
-                    } else {
-                        SolidColor(Color.Transparent)
+                    when {
+                        selected -> Brush.horizontalGradient(listOf(hue.copy(alpha = 0.2f), Color.Transparent))
+                        needsYou -> Brush.horizontalGradient(listOf(accent.copy(alpha = 0.1f), Color.Transparent))
+                        else -> SolidColor(Color.Transparent)
                     },
                 ).drawBehind {
-                    if (selected) {
+                    if (selected || needsYou) {
                         drawRoundRect(
-                            color = hue,
+                            color = accent,
                             topLeft = Offset(0f, 14.dp.toPx()),
                             size = Size(3.dp.toPx(), size.height - 28.dp.toPx()),
                             cornerRadius = CornerRadius(3.dp.toPx()),
@@ -698,57 +772,102 @@ private fun BotRow(
             size = 42.dp,
             working = working,
             presence = if (recent) OrbPresence.RECENT else OrbPresence.IDLE,
+            shapeKey = profile.botMeta()?.avatar?.shape,
+            imageUrl = imageUrl,
+            attention = needsYou,
         )
         Spacer(Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
+            // Line 1: the name alone, so it gets the whole width; the time sits at the end.
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = title,
                     color = BotsPalette.Fg,
                     fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = if (unread > 0) FontWeight.ExtraBold else FontWeight.Bold,
                     letterSpacing = (-0.2).sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = "@${profile.name}",
-                    color = BotsPalette.Faint,
-                    fontFamily = Mono,
-                    fontSize = 10.5.sp,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Clip,
-                )
-            }
-            val line =
-                if (working) {
-                    stringResource(R.string.bots_working_on, task ?: summary)
-                } else {
-                    summary
+                if (time.isNotEmpty()) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = time,
+                        color = if (working || unread > 0) hue else BotsPalette.Faint,
+                        fontFamily = Mono,
+                        fontSize = 10.5.sp,
+                        maxLines = 1,
+                    )
                 }
-            if (line.isNotBlank()) {
+            }
+            // Line 2: what needs attention, what it's doing, or @handle · summary.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val line =
+                    when {
+                        needsYou -> {
+                            AnnotatedString(stringResource(R.string.bots_needs_you))
+                        }
+
+                        working -> {
+                            AnnotatedString(stringResource(R.string.bots_working_on, task ?: summary))
+                        }
+
+                        else -> {
+                            buildAnnotatedString {
+                                withStyle(SpanStyle(color = BotsPalette.Faint, fontFamily = Mono, fontSize = 11.sp)) {
+                                    append("@${profile.name}")
+                                }
+                                if (summary.isNotBlank()) append(" · $summary")
+                            }
+                        }
+                    }
                 Text(
                     text = line,
-                    color = if (working) lerp(hue, BotsPalette.Fg, 0.3f) else BotsPalette.Muted,
+                    color =
+                        when {
+                            needsYou -> BotsPalette.Attention
+                            working -> lerp(hue, BotsPalette.Fg, 0.3f)
+                            else -> BotsPalette.Muted
+                        },
                     fontSize = 12.5.sp,
+                    fontWeight = if (needsYou) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
+                if (unread > 0) {
+                    Spacer(Modifier.width(6.dp))
+                    UnreadBadge(count = unread, hue = hue)
+                }
             }
         }
-        if (time.isNotEmpty()) {
-            Spacer(Modifier.width(6.dp))
-            Text(
-                text = time,
-                color = if (working) hue else BotsPalette.Faint,
-                fontFamily = Mono,
-                fontSize = 10.5.sp,
-                maxLines = 1,
-            )
-        }
+    }
+}
+
+@Composable
+private fun UnreadBadge(
+    count: Int,
+    hue: Color,
+) {
+    val label = BotsPresentation.unreadLabel(count)
+    val description = stringResource(R.string.bots_unread, label)
+    Box(
+        modifier =
+            Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(hue)
+                .padding(horizontal = 6.dp, vertical = 1.dp)
+                .semantics { contentDescription = description },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = BotsPalette.Ink,
+            fontSize = 10.5.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1,
+        )
     }
 }
 
@@ -759,6 +878,7 @@ private fun GroupRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
+    subtitle: String? = null,
 ) {
     Row(
         modifier =
@@ -782,7 +902,7 @@ private fun GroupRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = group.members.joinToString(" · ") { it.effectiveTitle },
+                text = subtitle ?: group.members.joinToString(" · ") { it.effectiveTitle },
                 color = BotsPalette.Muted,
                 fontSize = 12.5.sp,
                 maxLines = 1,
@@ -796,6 +916,8 @@ private fun GroupRow(
 private fun BotsChatPane(
     modifier: Modifier,
     profile: ProfileInfo?,
+    imageUrl: String?,
+    needsYou: Boolean,
     sessionId: String?,
     now: Double,
     baseScheme: androidx.compose.material3.ColorScheme,
@@ -838,7 +960,9 @@ private fun BotsChatPane(
                         modifier = Modifier.fillMaxSize(),
                         onOpenDrawer = null,
                         sessionId = sessionId,
-                        titleOverride = { PaneTitle(profile = profile, hue = hue, now = now) },
+                        titleOverride = {
+                            PaneTitle(profile = profile, hue = hue, now = now, imageUrl = imageUrl, needsYou = needsYou)
+                        },
                     )
                 }
             }
@@ -851,6 +975,8 @@ private fun PaneTitle(
     profile: ProfileInfo,
     hue: Color,
     now: Double,
+    imageUrl: String?,
+    needsYou: Boolean,
 ) {
     val working = BotsPresentation.isWorking(profile, now)
     val recent = BotsPresentation.isRecent(profile, now)
@@ -860,6 +986,9 @@ private fun PaneTitle(
             hue = hue,
             size = 36.dp,
             working = working,
+            shapeKey = profile.botMeta()?.avatar?.shape,
+            imageUrl = imageUrl,
+            attention = needsYou,
         )
         Spacer(Modifier.width(8.dp))
         Column {
@@ -872,7 +1001,7 @@ private fun PaneTitle(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            StatusPill(profile = profile, hue = hue, working = working, recent = recent, now = now)
+            StatusPill(profile = profile, hue = hue, working = working, recent = recent, now = now, needsYou = needsYou)
         }
     }
 }
@@ -884,6 +1013,7 @@ private fun StatusPill(
     working: Boolean,
     recent: Boolean,
     now: Double,
+    needsYou: Boolean = false,
 ) {
     val shape = RoundedCornerShape(999.dp)
     val glow =
@@ -902,19 +1032,32 @@ private fun StatusPill(
     val time = BotsPresentation.relativeTime(BotsPresentation.lastActive(profile), now)
     val text =
         when {
+            needsYou -> stringResource(R.string.bots_waiting_for_you)
             working -> stringResource(R.string.bots_working_on, BotsPresentation.currentTask(profile) ?: profile.name)
             time.isNotEmpty() -> stringResource(R.string.bots_last_active, time)
             else -> "@${profile.name}"
         }
-    val color = if (working) lerp(hue, BotsPalette.Fg, 0.3f) else BotsPalette.Muted
+    val color =
+        when {
+            needsYou -> BotsPalette.Attention
+            working -> lerp(hue, BotsPalette.Fg, 0.3f)
+            else -> BotsPalette.Muted
+        }
     Row(
         modifier =
             Modifier
                 .padding(top = 2.dp)
                 .clip(shape)
                 .background(BotsPalette.Deck.copy(alpha = 0.8f))
-                .border(1.dp, if (working) hue.copy(alpha = 0.45f) else BotsPalette.Line, shape)
-                .padding(horizontal = 7.dp, vertical = 1.dp),
+                .border(
+                    1.dp,
+                    when {
+                        needsYou -> BotsPalette.Attention.copy(alpha = 0.6f)
+                        working -> hue.copy(alpha = 0.45f)
+                        else -> BotsPalette.Line
+                    },
+                    shape,
+                ).padding(horizontal = 7.dp, vertical = 1.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -994,19 +1137,22 @@ private fun BotsDialogs(
         EditBotBottomSheet(
             bot = bot,
             onDismiss = onDismissEdit,
-            onSave = { title, description, shape, color ->
-                viewModel.updateBotMeta(bot.name, title, description, shape, color) { onDismissEdit() }
+            onSave = { title, description, shape, color, imageUrl ->
+                viewModel.updateBotMeta(bot.name, title, description, shape, color, imageUrl) { onDismissEdit() }
             },
             onDelete = { viewModel.deleteBot(bot.name) { onDismissEdit() } },
+            currentImage = state.imageFor(bot),
+            onGenerate = viewModel::generateAvatar,
         )
     }
 
     if (showCreateDialog) {
         CreateBotDialog(
             onDismiss = onDismissCreate,
-            onCreate = { name, title, description, shape, color ->
-                viewModel.createBot(name, title, description, shape, color) { onDismissCreate() }
+            onCreate = { name, title, description, shape, color, imageUrl ->
+                viewModel.createBot(name, title, description, shape, color, imageUrl) { onDismissCreate() }
             },
+            onGenerate = viewModel::generateAvatar,
         )
     }
 

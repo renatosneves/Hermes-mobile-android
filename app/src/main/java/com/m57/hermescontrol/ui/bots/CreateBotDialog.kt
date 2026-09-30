@@ -40,31 +40,25 @@ import com.m57.hermescontrol.data.model.BotAvatarMeta
 import com.m57.hermescontrol.theme.parseHexColor
 import com.m57.hermescontrol.ui.common.BotAvatar
 
-private val AVAILABLE_SHAPES = listOf("circle", "square", "rounded", "hexagon")
-private val PALETTE_COLORS =
-    listOf(
-        "#4F46E5", // Indigo
-        "#2563EB", // Blue
-        "#0D9488", // Teal
-        "#16A34A", // Green
-        "#D97706", // Amber
-        "#EA580C", // Orange
-        "#DC2626", // Red
-        "#DB2777", // Pink
-        "#9333EA", // Purple
-        "#4B5563", // Gray
-    )
-
 @Composable
 fun CreateBotDialog(
     onDismiss: () -> Unit,
-    onCreate: (name: String, title: String, description: String, shape: String, color: String) -> Unit,
+    onCreate: (
+        name: String,
+        title: String,
+        description: String,
+        shape: String,
+        color: String,
+        imageUrl: String?,
+    ) -> Unit,
+    onGenerate: (suspend (String) -> Result<String>)? = null,
 ) {
     var name by remember { mutableStateOf("") }
     var title by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var selectedShape by remember { mutableStateOf("circle") }
-    var selectedColor by remember { mutableStateOf(PALETTE_COLORS[0]) }
+    var selectedColor by remember { mutableStateOf(BotsPresentation.HUE_HEX[0]) }
+    var selectedImage by remember { mutableStateOf<String?>(null) }
 
     val isValid = name.isNotBlank() && name.trim().matches(Regex("^[a-zA-Z0-9_-]+$"))
 
@@ -84,26 +78,6 @@ fun CreateBotDialog(
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState()),
             ) {
-                // Live Avatar Preview Header
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    BotAvatar(
-                        name = name.ifBlank { "bot" },
-                        avatar =
-                            BotAvatarMeta(
-                                shape = selectedShape,
-                                color = selectedColor,
-                            ),
-                        size = 64.dp,
-                        showPresence = false,
-                    )
-                }
-
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it.filter { c -> c.isLetterOrDigit() || c == '_' || c == '-' } },
@@ -137,96 +111,31 @@ fun CreateBotDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Text(
-                    text = stringResource(R.string.bots_create_avatar_shape),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                BotAppearanceEditor(
+                    title = title.ifBlank { name },
+                    shape = selectedShape,
+                    colorHex = selectedColor,
+                    imageUrl = selectedImage,
+                    onShapeChange = { selectedShape = it },
+                    onColorChange = { selectedColor = it },
+                    onImageChange = { selectedImage = it },
+                    generatePrompt = BotsPresentation.avatarPrompt(title.ifBlank { name }, description),
+                    onGenerate = onGenerate,
                 )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    AVAILABLE_SHAPES.forEach { shape ->
-                        FilterChip(
-                            selected = selectedShape == shape,
-                            onClick = { selectedShape = shape },
-                            label = { Text(shape.replaceFirstChar { it.uppercase() }) },
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    text = stringResource(R.string.bots_create_avatar_color),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    PALETTE_COLORS.take(5).forEach { hex ->
-                        val color = parseHexColor(hex, Color.Unspecified)
-                        Box(
-                            modifier =
-                                Modifier
-                                    .size(32.dp)
-                                    .clip(CircleShape)
-                                    .background(color)
-                                    .clickable { selectedColor = hex }
-                                    .then(
-                                        if (selectedColor == hex) {
-                                            Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                                        } else {
-                                            Modifier
-                                        },
-                                    ),
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    PALETTE_COLORS.drop(5).forEach { hex ->
-                        val color = parseHexColor(hex, Color.Unspecified)
-                        Box(
-                            modifier =
-                                Modifier
-                                    .size(32.dp)
-                                    .clip(CircleShape)
-                                    .background(color)
-                                    .clickable { selectedColor = hex }
-                                    .then(
-                                        if (selectedColor == hex) {
-                                            Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                                        } else {
-                                            Modifier
-                                        },
-                                    ),
-                        )
-                    }
-                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
                     if (isValid) {
-                        onCreate(name.trim(), title.trim(), description.trim(), selectedShape, selectedColor)
+                        onCreate(
+                            name.trim(),
+                            title.trim(),
+                            description.trim(),
+                            selectedShape,
+                            selectedColor,
+                            selectedImage,
+                        )
                     }
                 },
                 enabled = isValid,

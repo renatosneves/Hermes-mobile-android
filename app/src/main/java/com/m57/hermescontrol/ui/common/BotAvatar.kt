@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CutCornerShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
@@ -142,7 +143,8 @@ fun resolveAvatarShape(
     when (shapeKey?.lowercase()?.trim()) {
         "square", "box", "boxy" -> RoundedCornerShape(size * 0.15f)
         "rounded", "nub", "organic" -> RoundedCornerShape(size * 0.32f)
-        "hexagon", "cut", "diamond", "cloud", "sun" -> CutCornerShape(size * 0.25f)
+        "hexagon" -> HexagonShape
+        "cut", "diamond", "cloud", "sun" -> CutCornerShape(size * 0.25f)
         "circle", "round" -> CircleShape
         else -> CircleShape
     }
@@ -176,3 +178,17 @@ fun extractInitials(name: String): String {
         else -> clean.take(1).uppercase()
     }
 }
+
+/** Flat-sided hexagon (points left and right), used for the "hexagon" avatar shape. */
+val HexagonShape: Shape =
+    GenericShape { size, _ ->
+        val w = size.width
+        val h = size.height
+        moveTo(w * 0.25f, 0f)
+        lineTo(w * 0.75f, 0f)
+        lineTo(w, h / 2f)
+        lineTo(w * 0.75f, h)
+        lineTo(w * 0.25f, h)
+        lineTo(0f, h / 2f)
+        close()
+    }
