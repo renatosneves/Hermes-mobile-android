@@ -6266,6 +6266,7 @@ class ChatViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        VoiceLiveCalls.ownerCleared(this)
         subagentsDelegate.closeSubagentTranscript()
         // PERF-16: Don't disconnect the global HermesWsClient singleton when
         // leaving the Chat screen — it's used by background notification reply.

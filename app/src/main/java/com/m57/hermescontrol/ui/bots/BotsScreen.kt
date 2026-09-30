@@ -102,6 +102,7 @@ import com.m57.hermescontrol.R
 import com.m57.hermescontrol.data.model.ProfileInfo
 import com.m57.hermescontrol.theme.BotsPalette
 import com.m57.hermescontrol.ui.chat.ChatScreen
+import com.m57.hermescontrol.ui.chat.VoiceLiveCalls
 import com.m57.hermescontrol.ui.common.DisableDrawerGestures
 import com.m57.hermescontrol.ui.common.LocalDrawerGestureController
 import com.m57.hermescontrol.ui.common.ToastEffect
@@ -229,6 +230,17 @@ fun BotsScreen(
                 )
             }
 
+            // Nothing picked yet: open on the Chief of Staff, the bot that hands work out.
+            LaunchedEffect(twoPane, state.profiles.isNotEmpty()) {
+                if (twoPane && openBotName == null) {
+                    state.profiles.firstOrNull { it.name == BotsPresentation.DEFAULT_BOT }?.let(onOpenBot)
+                }
+            }
+            // A live call carries on through a fold: keep its chat (and call screen) on show.
+            val voiceCall by VoiceLiveCalls.active.collectAsStateWithLifecycle()
+            LaunchedEffect(twoPane, voiceCall) {
+                if (!twoPane && voiceCall != null && openBotName != null) phoneChatOpen = true
+            }
             val selectedName = openBotName ?: state.activeProfileName
             val selected = state.profiles.firstOrNull { it.name == selectedName }
             val chatSessionId = openSessionId ?: selected?.canonicalSessionId()
@@ -448,6 +460,7 @@ private fun BotsRail(
                                 } else {
                                     BotsPresentation.unreadCount(profile, state.seenCounts[profile.name])
                                 },
+                            preview = state.previewFor(profile),
                             onClick = { onOpenBot(profile) },
                             onLongClick = { onEditBot(profile) },
                         )
@@ -735,6 +748,7 @@ private fun BotRow(
     imageUrl: String?,
     needsYou: Boolean,
     unread: Int,
+    preview: String,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -744,7 +758,6 @@ private fun BotRow(
     val recent = BotsPresentation.isRecent(profile, now)
     val title = profile.effectiveTitle
     val summary = BotsPresentation.shortSummary(profile.effectiveDescription)
-    val description = BotsPresentation.rowDescription(profile.effectiveDescription)
     val handle = BotsPresentation.distinctHandle(profile.name, title)
     val task = BotsPresentation.currentTask(profile)
     val time = BotsPresentation.relativeTime(BotsPresentation.lastActive(profile), now)
@@ -824,35 +837,49 @@ private fun BotRow(
                     )
                 }
             }
-            // Below: what needs attention, what it's doing, or the description over up to two lines.
+            // Below, Telegram style: a status line when it needs you or is working, then the
+            // latest message of the conversation (three lines in all).
+            val status =
+                when {
+                    needsYou -> stringResource(R.string.bots_needs_you)
+                    working -> stringResource(R.string.bots_working_on, task ?: summary)
+                    else -> null
+                }
+            if (status != null) {
+                Text(
+                    text = status,
+                    color = if (needsYou) BotsPalette.Attention else lerp(hue, BotsPalette.Fg, 0.3f),
+                    fontSize = 12.5.sp,
+                    fontWeight = if (needsYou) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Row(verticalAlignment = Alignment.Top) {
+                val youPrefix = stringResource(R.string.bots_preview_you)
                 val line =
                     when {
-                        needsYou -> {
-                            AnnotatedString(stringResource(R.string.bots_needs_you))
+                        preview.isBlank() -> {
+                            AnnotatedString(stringResource(R.string.bots_preview_empty))
                         }
 
-                        working -> {
-                            AnnotatedString(stringResource(R.string.bots_working_on, task ?: summary))
+                        preview.startsWith(youPrefix) -> {
+                            buildAnnotatedString {
+                                withStyle(SpanStyle(color = BotsPalette.Fg)) { append(youPrefix) }
+                                append(preview.removePrefix(youPrefix))
+                            }
                         }
 
                         else -> {
-                            AnnotatedString(description.ifBlank { handle ?: "@${profile.name}" })
+                            AnnotatedString(preview)
                         }
                     }
-                val calm = !needsYou && !working
                 Text(
                     text = line,
-                    color =
-                        when {
-                            needsYou -> BotsPalette.Attention
-                            working -> lerp(hue, BotsPalette.Fg, 0.3f)
-                            else -> BotsPalette.Muted
-                        },
+                    color = if (preview.isBlank()) BotsPalette.Faint else BotsPalette.Muted,
                     fontSize = 12.5.sp,
-                    fontWeight = if (needsYou) FontWeight.SemiBold else FontWeight.Normal,
                     lineHeight = 16.sp,
-                    maxLines = if (calm) 2 else 1,
+                    maxLines = if (status != null) 2 else 3,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
@@ -982,6 +1009,8 @@ private fun BotsChatPane(
                         onOpenDrawer = null,
                         sessionId = sessionId,
                         onBack = onBack,
+                        voiceTitle = profile.effectiveTitle,
+                        voiceImageUrl = imageUrl,
                         titleOverride = {
                             PaneTitle(profile = profile, hue = hue, now = now, imageUrl = imageUrl, needsYou = needsYou)
                         },

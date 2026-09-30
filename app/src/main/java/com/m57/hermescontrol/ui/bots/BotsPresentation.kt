@@ -1,6 +1,11 @@
 package com.m57.hermescontrol.ui.bots
 
 import com.m57.hermescontrol.data.model.ProfileInfo
+import com.m57.hermescontrol.data.model.SessionMessage
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.TextStyle
@@ -221,8 +226,61 @@ internal object BotsPresentation {
         return if (key(name) == key(title)) null else "@$name"
     }
 
-    /** The bot's description for its row, whitespace tidied; the row gives it two lines. */
-    fun rowDescription(description: String): String = description.replace(Regex("""\s+"""), " ").trim()
+    /** The bot the Bots home opens on, and the one voice talks to, when you haven't picked one. */
+    const val DEFAULT_BOT = "chief-of-staff"
+
+    /** Longest message preview kept for a row (the row shows up to three lines of it). */
+    private const val PREVIEW_MAX_CHARS = 240
+
+    /** Plain text of a message's content: a string, or the text parts of a content list. */
+    fun contentText(content: JsonElement?): String =
+        when (content) {
+            is JsonPrimitive -> {
+                if (content.isString) content.content else ""
+            }
+
+            is JsonArray -> {
+                content
+                    .mapNotNull { part ->
+                        when (part) {
+                            is JsonPrimitive -> part.content.takeIf { part.isString }
+                            is JsonObject -> (part["text"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                            else -> null
+                        }
+                    }.joinToString(" ")
+            }
+
+            else -> {
+                ""
+            }
+        }
+
+    /** Markdown and extra whitespace stripped, so a preview reads like a chat line. */
+    fun previewText(raw: String): String =
+        raw
+            .replace(Regex("""```[\s\S]*?```"""), " ")
+            .replace(Regex("""!\[[^\]]*]\([^)]*\)"""), " ")
+            .replace(Regex("""\[([^\]]+)]\([^)]*\)"""), "$1")
+            .replace(Regex("""[*_`#>|~]+"""), "")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+            .let { if (it.length > PREVIEW_MAX_CHARS) it.take(PREVIEW_MAX_CHARS).trimEnd() + "…" else it }
+
+    /**
+     * Telegram-style preview from a page of the newest messages: the latest thing you or the bot
+     * said, prefixed "You: " when it was you. Null when there is nothing to show.
+     */
+    fun latestPreview(messages: List<SessionMessage>): String? {
+        val last =
+            messages
+                .asReversed()
+                .firstOrNull { m ->
+                    (m.role == "user" || m.role == "assistant") && m.display_kind == null &&
+                        previewText(contentText(m.display_content ?: m.content)).isNotEmpty()
+                } ?: return null
+        val text = previewText(contentText(last.display_content ?: last.content))
+        return if (last.role == "user") "You: $text" else text
+    }
 
     /** What the bot is doing right now, if we know: the worker's or latest session's title. */
     fun currentTask(profile: ProfileInfo): String? =

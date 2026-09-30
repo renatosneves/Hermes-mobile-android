@@ -44,6 +44,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
@@ -170,6 +171,9 @@ fun ChatScreen(
     titleOverride: (@Composable () -> Unit)? = null,
     /** Shows a back arrow instead of the menu, e.g. a bot chat opened from the Bots list on a phone. */
     onBack: (() -> Unit)? = null,
+    /** The bot a live voice call from this chat speaks as, and its picture (the Bots home sets these). */
+    voiceTitle: String? = null,
+    voiceImageUrl: String? = null,
     viewModel: ChatViewModel = viewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -472,14 +476,9 @@ fun ChatScreen(
         isOverlayActive = !isChatContentReadable,
     )
 
-    var showVoiceLive by remember { mutableStateOf(false) }
-    if (showVoiceLive) {
-        VoiceLiveOverlay(
-            viewModel = viewModel,
-            title = state.chatTitle.ifBlank { "Hermes" },
-            onDismiss = { showVoiceLive = false },
-        )
-    }
+    val voiceCall by VoiceLiveCalls.active.collectAsStateWithLifecycle()
+    val ownCall = voiceCall?.takeIf { it.owner === viewModel }
+    ownCall?.takeIf { !it.minimised }?.let { VoiceLiveOverlay(it) }
 
     HermesScaffold(
         modifier = modifier,
@@ -545,12 +544,21 @@ fun ChatScreen(
         },
         actions = {
             IconButton(
-                onClick = { showVoiceLive = true },
+                onClick = {
+                    VoiceLiveCalls.open(
+                        context = context,
+                        owner = viewModel,
+                        title = voiceTitle ?: state.chatTitle.ifBlank { "Hermes" },
+                        imageUrl = voiceImageUrl,
+                    )
+                },
                 modifier = Modifier.testTag("chat_voice_live_button"),
             ) {
                 Icon(
                     imageVector = Icons.Filled.GraphicEq,
                     contentDescription = stringResource(R.string.voice_live_open),
+                    // A call tucked away to answer in the chat: the button takes you back to it.
+                    tint = if (ownCall != null) MaterialTheme.colorScheme.primary else LocalContentColor.current,
                 )
             }
             IconButton(onClick = { viewModel.createNewSession() }) {

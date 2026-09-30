@@ -63,7 +63,17 @@ data class BotsUiState(
     val needsYou: Set<String> = emptySet(),
     /** Message counts at the time you last opened each bot. */
     val seenCounts: Map<String, Int> = emptyMap(),
+    /** Latest line of each bot's conversation, Telegram style, by bot name. */
+    val previews: Map<String, String> = emptyMap(),
 ) {
+    /** The row's preview: the fetched latest message, else the roster's short excerpt. */
+    fun previewFor(profile: ProfileInfo): String =
+        previews[profile.name]
+            ?: profile.canonical_session
+                ?.preview
+                ?.let(BotsPresentation::previewText)
+                .orEmpty()
+
     /** The picture to show for a bot: the server's avatar store first, then an older inline image. */
     fun imageFor(profile: ProfileInfo): String? =
         avatars[profile.name]
@@ -340,6 +350,50 @@ class BotsViewModel(
         recordSeenBaselines(profiles)
         refreshAvatars(profiles)
         refreshNeedsYou(profiles)
+        refreshPreviews(profiles)
+    }
+
+    /** Message count each preview was fetched at, so only bots with new messages are re-read. */
+    private val previewCounts = mutableMapOf<String, Int?>()
+
+    private suspend fun refreshPreviews(profiles: List<ProfileInfo>) {
+        val stale =
+            profiles.filter { p ->
+                val sessionId = p.canonical_session?.let { it.resolved_id ?: it.id }
+                !sessionId.isNullOrBlank() &&
+                    (p.name !in previewCounts || previewCounts[p.name] != BotsPresentation.messageCount(p))
+            }
+        if (stale.isEmpty()) return
+        val fetched =
+            coroutineScope {
+                stale
+                    .map { p ->
+                        async(ioDispatcher) {
+                            val sessionId = p.canonical_session?.let { it.resolved_id ?: it.id }.orEmpty()
+                            val result =
+                                safeApiCall(retries = 0) {
+                                    ApiClient.hermesApi.getSessionMessages(
+                                        sessionId,
+                                        limit = PREVIEW_PAGE,
+                                        order = "latest",
+                                        profile = p.name,
+                                    )
+                                }
+                            val preview =
+                                (result as? NetworkResult.Success)
+                                    ?.data
+                                    ?.messages
+                                    ?.let(BotsPresentation::latestPreview)
+                            if (result is NetworkResult.Success) {
+                                previewCounts[p.name] =
+                                    BotsPresentation.messageCount(p)
+                            }
+                            p.name to preview
+                        }
+                    }.map { it.await() }
+            }.filter { it.second != null }
+                .associate { it.first to it.second!! }
+        if (fetched.isNotEmpty()) _uiState.update { it.copy(previews = it.previews + fetched) }
     }
 
     private fun recordSeenBaselines(profiles: List<ProfileInfo>) {
@@ -815,6 +869,9 @@ sealed interface AvatarSave {
 }
 
 private const val RPC_METHOD_NOT_FOUND = -32601
+
+/** Newest messages read per bot for its preview (tool rows sit between the text ones). */
+private const val PREVIEW_PAGE = 6
 private const val GENERATE_TIMEOUT_MS = 180_000L
 internal const val GENERATE_UNAVAILABLE = "No image generator is set up on Hermes"
 

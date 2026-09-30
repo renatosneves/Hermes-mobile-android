@@ -24,7 +24,17 @@ data class VoiceLiveUi(
     val message: String? = null,
     /** Tool Hermes is running for the current request, if any. */
     val working: String? = null,
+    /** Hermes stopped to ask you something (an approval, a question); answered on screen. */
+    val ask: VoiceAsk? = null,
 )
+
+/** Something Hermes needs from you before it can carry on with a spoken request. */
+data class VoiceAsk(
+    val kind: Kind,
+    val text: String,
+) {
+    enum class Kind { APPROVAL, QUESTION, SECRET }
+}
 
 /** Hermes' answer to the current request, as it streams. */
 data class VoiceReply(
@@ -57,6 +67,9 @@ interface VoiceLiveHost {
     fun replySince(sinceMs: Long): VoiceReply?
 
     fun activeTool(): String?
+
+    /** An approval, question or secret the bot is waiting on, if any. */
+    fun pendingAsk(): VoiceAsk?
 }
 
 /**
@@ -68,6 +81,8 @@ class VoiceLiveController(
     private val context: Context,
     private val scope: CoroutineScope,
     private val host: VoiceLiveHost,
+    /** Who the voice speaks as, added to its instructions once the session is up. */
+    private val persona: String? = null,
 ) {
     private val _ui = MutableStateFlow(VoiceLiveUi())
     val ui: StateFlow<VoiceLiveUi> = _ui.asStateFlow()
@@ -85,8 +100,16 @@ class VoiceLiveController(
 
     @Volatile private var speaking = false
 
+    private var started = false
+
+    /** Starts the call unless it already started (a screen coming back after a fold). */
+    fun startIfIdle() {
+        if (!started) start()
+    }
+
     /** Checks the server can run GPT-Live, then connects. */
     fun start() {
+        started = true
         scope.launch {
             _ui.update { VoiceLiveUi(phase = VoiceLivePhase.CHECKING) }
             val (available, reason) = runCatching { host.checkAvailable() }.getOrElse { false to it.message }
@@ -195,8 +218,31 @@ class VoiceLiveController(
                 var spokenReplyId: String? = null
                 var spokenLength = 0
                 var lastTool: String? = null
+                var lastAsk: VoiceAsk? = null
                 var observed = false
+                var settleFrom = submittedAt
                 while (isActive && delegationId == id && transport === session) {
+                    // Waiting on you (an approval, a question): say so, show it, and keep waiting.
+                    val ask = host.pendingAsk()
+                    if (ask != lastAsk) {
+                        if (ask != null) {
+                            session.think(
+                                id,
+                                "The agent is paused waiting for the user: ${ask.text.take(300)}. " +
+                                    "Tell the user briefly what it needs; they answer on their screen.",
+                            )
+                        } else {
+                            // Answered: the turn resumes, so the reply gets a fresh grace period.
+                            observed = false
+                            settleFrom = System.currentTimeMillis()
+                        }
+                        lastAsk = ask
+                        _ui.update { it.copy(ask = ask) }
+                    }
+                    if (ask != null) {
+                        delay(FEED_TICK_MS)
+                        continue
+                    }
                     if (host.isBusy()) observed = true
                     val tool = host.activeTool()
                     if (tool != null && tool != lastTool) {
@@ -223,7 +269,7 @@ class VoiceLiveController(
                             break
                         }
                     } else if (!host.isBusy() &&
-                        (observed || System.currentTimeMillis() - submittedAt > SUBMIT_SETTLE_GRACE_MS)
+                        (observed || System.currentTimeMillis() - settleFrom > SUBMIT_SETTLE_GRACE_MS)
                     ) {
                         session.think(id, "Hermes finished that request without a spoken result.")
                         break
@@ -231,14 +277,17 @@ class VoiceLiveController(
                     delay(FEED_TICK_MS)
                 }
                 if (delegationId == id) delegationId = null
-                _ui.update { it.copy(working = null) }
+                _ui.update { it.copy(working = null, ask = null) }
                 refreshPhase()
             }
     }
 
     private inner class Listener : VoiceLiveListener {
         override fun onStarted() {
-            scope.launch { refreshPhase() }
+            scope.launch {
+                persona?.let { transport?.instruct(it) }
+                refreshPhase()
+            }
         }
 
         override fun onTranscript(fragment: LiveTranscriptFragment) {

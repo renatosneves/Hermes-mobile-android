@@ -5,6 +5,7 @@ import com.m57.hermescontrol.data.remote.ApiClient
 import com.m57.hermescontrol.data.remote.NetworkError
 import com.m57.hermescontrol.data.remote.NetworkResult
 import com.m57.hermescontrol.data.remote.safeApiCall
+import com.m57.hermescontrol.voice.VoiceAsk
 import com.m57.hermescontrol.voice.VoiceLiveHost
 import com.m57.hermescontrol.voice.VoiceLivePlanner
 import com.m57.hermescontrol.voice.VoiceReply
@@ -92,6 +93,24 @@ class ChatVoiceLiveHost(
             .lastOrNull { it.isToolRunning && it.id !in seenIds }
             ?.toolName
             ?.replace('_', ' ')
+
+    override fun pendingAsk(): VoiceAsk? {
+        val state = viewModel.uiState.value
+        state.messages
+            .lastOrNull { it.approvalInfo != null }
+            ?.approvalInfo
+            ?.let { approval ->
+                val what = approval.description ?: approval.command ?: "run a command"
+                return VoiceAsk(VoiceAsk.Kind.APPROVAL, what)
+            }
+        state.clarifyRequest?.let { return VoiceAsk(VoiceAsk.Kind.QUESTION, it.text) }
+        if (state.sudoPrompt != null || state.secretPrompt != null || state.vaultUnlockPrompt != null ||
+            state.vaultCodePrompt != null
+        ) {
+            return VoiceAsk(VoiceAsk.Kind.SECRET, "a password or secret")
+        }
+        return null
+    }
 
     private fun assistantIds(): Set<String> =
         buildSet {

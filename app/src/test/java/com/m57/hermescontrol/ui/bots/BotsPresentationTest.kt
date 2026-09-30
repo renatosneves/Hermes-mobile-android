@@ -3,6 +3,10 @@ package com.m57.hermescontrol.ui.bots
 import com.m57.hermescontrol.data.model.CanonicalSessionInfo
 import com.m57.hermescontrol.data.model.ProfileInfo
 import com.m57.hermescontrol.data.model.ProfileWorkerSummary
+import com.m57.hermescontrol.data.model.SessionMessage
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -106,6 +110,33 @@ class BotsPresentationTest {
         assertEquals(null, BotsPresentation.distinctHandle("work", "Work"))
         assertEquals(null, BotsPresentation.distinctHandle("chief-of-staff", "Chief of Staff"))
         assertEquals("@default", BotsPresentation.distinctHandle("default", "CEO"))
-        assertEquals("a b", BotsPresentation.rowDescription("  a\n  b "))
+    }
+
+    @Test
+    fun `preview shows the latest line and marks your own`() {
+        val messages =
+            listOf(
+                SessionMessage(role = "user", content = JsonPrimitive("Make the **deck**")),
+                SessionMessage(
+                    role = "assistant",
+                    content = JsonPrimitive("Done: [the deck](https://x.y)\n\nIt has one slide."),
+                ),
+                SessionMessage(role = "tool", content = JsonPrimitive("{}")),
+            )
+        assertEquals("Done: the deck It has one slide.", BotsPresentation.latestPreview(messages))
+        assertEquals("You: Make the deck", BotsPresentation.latestPreview(messages.take(1)))
+        assertEquals(null, BotsPresentation.latestPreview(emptyList()))
+    }
+
+    @Test
+    fun `content text reads text parts of a list`() {
+        val parts =
+            JsonArray(
+                listOf(
+                    JsonObject(mapOf("type" to JsonPrimitive("text"), "text" to JsonPrimitive("hi"))),
+                    JsonObject(mapOf("type" to JsonPrimitive("image_url"))),
+                ),
+            )
+        assertEquals("hi", BotsPresentation.contentText(parts))
     }
 }

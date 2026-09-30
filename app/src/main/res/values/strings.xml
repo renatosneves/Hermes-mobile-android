@@ -1884,4 +1884,12 @@
     <string name="voice_live_mute">Mute</string>
     <string name="voice_live_unmute">Unmute</string>
     <string name="voice_live_end">End</string>
+    <string name="bots_preview_you">You:</string>
+    <string name="bots_preview_empty">No messages yet</string>
+    <string name="voice_live_ask_approval">%1$s needs your OK to: %2$s</string>
+    <string name="voice_live_ask_question">%1$s is asking: %2$s</string>
+    <string name="voice_live_ask_secret">%1$s needs a password or secret. Answer in the chat.</string>
+    <string name="voice_live_approve">Approve</string>
+    <string name="voice_live_deny">Deny</string>
+    <string name="voice_live_answer_in_chat">Answer in chat</string>
 </resources>
