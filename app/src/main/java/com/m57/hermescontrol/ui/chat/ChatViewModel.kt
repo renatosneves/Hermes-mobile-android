@@ -887,13 +887,24 @@ class ChatViewModel(
         // profile's session list and auto-creates a FRESH session, so the
         // previous profile's context never leaks into the new profile's chat.
         viewModelScope.launch {
-            ProfileSwitchCoordinator.switched
+            ProfileSwitchCoordinator.chatReset
                 .collect { _ ->
                     pendingGoneSessionNotice = false
                     sessionHasServerPresence = false
                     userMovedOn = false
                     resetSessionState(sessionId = null, title = "Hermes", isLoading = true)
                 }
+        }
+        // Opening a bot points chat at its profile without a reconnect: pick up that
+        // profile's sessions, commands and models.
+        viewModelScope.launch {
+            ProfileSwitchCoordinator.switched.collect { _ ->
+                if (wsClient.connectionStatus.value == ConnectionStatus.CONNECTED) {
+                    loadSessions()
+                    fetchCommandCatalog()
+                    modelSwitchDelegate.preloadModelOptions()
+                }
+            }
         }
         // Same wipe when the CONNECTION profile changes (different server):
         // without it, gateway.ready on the re-dialed socket tries to resume

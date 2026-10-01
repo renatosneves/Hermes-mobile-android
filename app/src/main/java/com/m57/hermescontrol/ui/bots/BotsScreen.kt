@@ -206,9 +206,10 @@ fun BotsScreen(
             val twoPane = maxWidth >= TWO_PANE_MIN_WIDTH
             val onOpenBot: (ProfileInfo) -> Unit = { profile ->
                 scope.launch {
+                    // Profile first, so the chat's resume of this bot's session already names it.
+                    viewModel.selectBot(profile)
                     openBotName = profile.name
                     openSessionId = profile.canonicalSessionId()
-                    viewModel.selectBot(profile)
                     viewModel.markSeen(profile)
                     if (!twoPane) phoneChatOpen = true
                     // Something shared is waiting: this bot's chat takes it.

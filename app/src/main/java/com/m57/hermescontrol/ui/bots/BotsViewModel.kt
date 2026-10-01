@@ -580,9 +580,13 @@ class BotsViewModel(
         _uiState.update { it.copy(showHidden = !it.showHidden) }
     }
 
-    suspend fun selectBot(bot: ProfileInfo): Boolean {
-        val result = ProfileSwitchCoordinator.switchProfile(bot.name)
-        return result is NetworkResult.Success
+    /**
+     * Points chat at [bot] at once (no reconnect, no wipe), then lets the server's active profile
+     * follow in the background.
+     */
+    fun selectBot(bot: ProfileInfo) {
+        ProfileSwitchCoordinator.focusProfile(bot.name)
+        viewModelScope.launch { ProfileSwitchCoordinator.syncServerProfile(bot.name) }
     }
 
     fun showToast(message: String) {

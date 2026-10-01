@@ -47,6 +47,10 @@ object ProfileSwitchCoordinator {
     private val _switched = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val switched: SharedFlow<String> = _switched.asSharedFlow()
 
+    /** Wipes the open chat: only a full [switchProfile] does this, never [focusProfile]. */
+    private val _chatReset = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val chatReset: SharedFlow<String> = _chatReset.asSharedFlow()
+
     private val _connectionSwitched = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val connectionSwitched: SharedFlow<String> = _connectionSwitched.asSharedFlow()
 
@@ -58,6 +62,7 @@ object ProfileSwitchCoordinator {
         if (result !is NetworkResult.Success) return result
 
         AuthManager.setActiveProfileId(name)
+        _chatReset.emit(name)
         _switched.emit(name)
         // The ticket mint inside connect() does blocking network I/O — it must
         // run off the main thread or the dial crashes with
@@ -69,6 +74,27 @@ object ProfileSwitchCoordinator {
         }
         return result
     }
+
+    /**
+     * Points the app at [name] without restarting chat, for opening a bot. Every chat call already
+     * names its profile, so the socket stays up and the open conversation isn't wiped: the chat
+     * then resumes the bot's own session in that profile. Runs synchronously so a session resume
+     * that follows straight after already carries the new profile.
+     */
+    fun focusProfile(name: String) {
+        if (AuthManager.activeProfileId.value == name) return
+        AuthManager.setActiveProfileId(name)
+        _switched.tryEmit(name)
+    }
+
+    /**
+     * Moves the server's sticky active profile to follow [focusProfile]. Best-effort: chat doesn't
+     * depend on it, only surfaces that don't pass a profile yet.
+     */
+    suspend fun syncServerProfile(name: String): NetworkResult<Unit> =
+        withContext(ioDispatcher) {
+            safeApiCall { ApiClient.hermesApi.setActiveProfile(SetActiveProfileRequest(name)) }
+        }
 
     /**
      * Switches the CONNECTION profile — which server the app talks to (e.g.
