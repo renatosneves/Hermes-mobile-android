@@ -57,20 +57,23 @@ fun ChatLifecycleEffects(
     // Switch to session from notification/history
     val pendingNavigation = NavigationController.pendingChatNavigation
     val pendingNewChatNavigation = NavigationController.pendingNewChatNavigation
-    // The session this screen was last pointed at. A reconnect must not switch back to it:
-    // after /new (or any switch inside the chat) that would drop you into the old session and
-    // hide what you just sent in the new one.
+    // The session this screen was last pointed at. A reconnect switches back to it only when
+    // something other than you moved the chat off it (opening a bot switches profile, which
+    // wipes the chat); after your own /new, going back would hide what you just sent.
     var appliedSessionId by rememberSaveable { mutableStateOf<String?>(null) }
-    LaunchedEffect(sessionId, pendingNavigation, pendingNewChatNavigation, connectionStatus) {
+    // Keyed on the chat's own session too, so a wipe that doesn't drop the socket still reopens.
+    LaunchedEffect(sessionId, pendingNavigation, pendingNewChatNavigation, connectionStatus, currentSessionId) {
         if (connectionStatus != ConnectionStatus.CONNECTED) return@LaunchedEffect
         val newChatRequest = NavigationController.consumePendingNewChatNavigation()
         val request = NavigationController.consumePendingChatNavigation()
         if (newChatRequest != null) {
-            viewModel.createNewSession()
+            viewModel.createNewSession(byUser = true)
             return@LaunchedEffect
         }
         val target = request?.sessionId ?: sessionId
-        if (!target.isNullOrBlank() && (request != null || target != appliedSessionId)) {
+        if (!target.isNullOrBlank() &&
+            (request != null || target != appliedSessionId || viewModel.shouldReopen(target))
+        ) {
             appliedSessionId = target
             viewModel.switchSession(target)
         }

@@ -466,6 +466,29 @@ class ChatViewModelTest {
         }
 
     @Test
+    fun reopen_putsTheBotSessionBackUnlessYouLeftIt() =
+        runTest {
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+            viewModel.switchSession("bot-session")
+            advanceUntilIdle()
+            assertFalse(viewModel.shouldReopen("bot-session"))
+
+            // A fresh session the app made itself (e.g. after a profile switch) is undone.
+            viewModel.createNewSession()
+            advanceUntilIdle()
+            assertTrue(viewModel.shouldReopen("bot-session"))
+
+            // Your own new chat is kept, until you open a session again.
+            viewModel.switchSession("bot-session")
+            viewModel.createNewSession(byUser = true)
+            advanceUntilIdle()
+            assertFalse(viewModel.shouldReopen("bot-session"))
+            viewModel.switchSession("other-session")
+            assertTrue(viewModel.shouldReopen("bot-session"))
+        }
+
+    @Test
     fun connectionOperation_sessionResumeRestoresPendingSnapshot() =
         runTest {
             val viewModel = createViewModel()

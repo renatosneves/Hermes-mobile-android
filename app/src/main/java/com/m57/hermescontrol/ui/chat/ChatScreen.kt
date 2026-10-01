@@ -575,7 +575,7 @@ fun ChatScreen(
                     tint = if (ownCall != null) MaterialTheme.colorScheme.primary else LocalContentColor.current,
                 )
             }
-            IconButton(onClick = { viewModel.createNewSession() }) {
+            IconButton(onClick = { viewModel.createNewSession(byUser = true) }) {
                 Icon(
                     imageVector = Icons.Filled.Add,
                     contentDescription = stringResource(R.string.content_desc_new_chat),

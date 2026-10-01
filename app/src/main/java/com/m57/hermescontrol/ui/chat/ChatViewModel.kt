@@ -569,6 +569,13 @@ class ChatViewModel(
      */
     private var sessionHasServerPresence = false
 
+    /**
+     * True once you left the session the screen opened on yourself (a new chat or a branch).
+     * Until then, anything else that moved this chat off it (a bot's profile switch, a fresh
+     * session made on reconnect) is undone by reopening it: see [shouldReopen].
+     */
+    private var userMovedOn = false
+
     /** Dedupe guard for [recoverGoneSession] (WS reject + REST 404 land together). */
     private var sessionGoneRecoveryInFlight = false
 
@@ -884,6 +891,7 @@ class ChatViewModel(
                 .collect { _ ->
                     pendingGoneSessionNotice = false
                     sessionHasServerPresence = false
+                    userMovedOn = false
                     resetSessionState(sessionId = null, title = "Hermes", isLoading = true)
                 }
         }
@@ -896,6 +904,7 @@ class ChatViewModel(
                 .collect { _ ->
                     pendingGoneSessionNotice = false
                     sessionHasServerPresence = false
+                    userMovedOn = false
                     resetSessionState(sessionId = null, title = "Hermes", isLoading = true)
                 }
         }
@@ -1825,6 +1834,7 @@ class ChatViewModel(
                 ActiveSessionHolder.set(runtimeId, storageId)
                 sessionHasServerPresence = false
                 sessionGoneRecoveryInFlight = false
+                userMovedOn = true
                 addSystemMessage("Session branched", persist = true)
                 loadSessionMessages(storageId, generation)
                 loadSessions()
@@ -3709,10 +3719,10 @@ class ChatViewModel(
                         )
                         dispatchViaRpc("/compact")
                     } else {
-                        createNewSession()
+                        createNewSession(byUser = true)
                     }
                 } else {
-                    createNewSession()
+                    createNewSession(byUser = true)
                 }
             }
 
@@ -4448,9 +4458,13 @@ class ChatViewModel(
         subagentsDelegate.closeSubagentTranscript()
     }
 
-    fun createNewSession(setLoading: Boolean = true) {
+    fun createNewSession(
+        setLoading: Boolean = true,
+        byUser: Boolean = false,
+    ) {
         // A fresh create has no persisted row until the first prompt.
         sessionHasServerPresence = false
+        if (byUser) userMovedOn = true
         val generation = resetSessionState(sessionId = null, title = "Hermes", isLoading = setLoading)
         viewModelScope.launch(ioDispatcher) {
             wsClient.send(
@@ -4823,8 +4837,15 @@ class ChatViewModel(
         }
     }
 
+    /**
+     * Whether the screen should put [target] back after something other than you moved this
+     * chat off it, e.g. opening a bot switches profile, which wipes the chat and starts afresh.
+     */
+    fun shouldReopen(target: String): Boolean = !userMovedOn && target != _uiState.value.currentSessionId
+
     fun switchSession(sessionId: String) {
         if (sessionId == _uiState.value.currentSessionId) return
+        userMovedOn = false
 
         // The id came from the gateway's own session list / picker — its row
         // is expected to exist, so resume it optimistically on reconnect even
@@ -5382,7 +5403,8 @@ class ChatViewModel(
         // createNewSession() clears messages immediately — queue the notice
         // until its result lands so the user actually sees it.
         pendingGoneSessionNotice = true
-        createNewSession(setLoading = false)
+        // The old session is gone: reopening it would only fail again.
+        createNewSession(setLoading = false, byUser = true)
     }
 
     private fun handleResumeFailure(
