@@ -61,6 +61,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -103,6 +104,7 @@ import com.m57.hermescontrol.ui.chat.components.ChatHistoryWindowBanner
 import com.m57.hermescontrol.ui.chat.components.ChatInputBar
 import com.m57.hermescontrol.ui.chat.components.ChatLifecycleEffects
 import com.m57.hermescontrol.ui.chat.components.ChatLoadingOverlay
+import com.m57.hermescontrol.ui.chat.components.ChatPaneMemory
 import com.m57.hermescontrol.ui.chat.components.ChatResumeErrorOverlay
 import com.m57.hermescontrol.ui.chat.components.ChatScrollToBottomFab
 import com.m57.hermescontrol.ui.chat.components.ChatTimelineNoPrefetchStrategy
@@ -139,6 +141,7 @@ import com.m57.hermescontrol.ui.settings.SettingsViewModel
 import com.m57.hermescontrol.util.ConnectorUrlValidator
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 
 private const val SESSION_SYNC_INTERVAL_MS = 30_000L
 
@@ -352,10 +355,34 @@ fun ChatScreen(
     var inputFieldValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(""))
     }
+    // Each chat keeps its own unsent text: opening another bot swaps it rather than carrying
+    // it over, and coming back brings it back.
+    var draftSessionId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(state.currentSessionId) {
+        val next = state.currentSessionId ?: return@LaunchedEffect
+        val previous = draftSessionId
+        if (previous == next) return@LaunchedEffect
+        previous?.let { ChatPaneMemory.saveDraft(it, inputFieldValue.text) }
+        draftSessionId = next
+        // First showing with text already in the box (e.g. after a fold): keep that text.
+        if (previous != null || inputFieldValue.text.isEmpty()) {
+            val draft = ChatPaneMemory.draft(next)
+            inputFieldValue = TextFieldValue(draft, selection = TextRange(draft.length))
+        }
+    }
+    val latestInput by rememberUpdatedState(inputFieldValue.text)
+    DisposableEffect(Unit) {
+        onDispose { draftSessionId?.let { ChatPaneMemory.saveDraft(it, latestInput) } }
+    }
     // Shared from another app and sent here from the bot list: fill the composer, don't send.
     val shareArmed by ShareInbox.armed.collectAsStateWithLifecycle()
-    LaunchedEffect(viewModel, shareArmed) {
-        if (!shareArmed) return@LaunchedEffect
+    LaunchedEffect(viewModel, shareArmed, draftSessionId) {
+        if (!shareArmed || draftSessionId == null) return@LaunchedEffect
+        // Opening the bot switches the chat in this same frame: wait for that, so the shared
+        // text lands in the new bot's composer, not the one being left.
+        yield()
+        yield()
+        if (viewModel.uiState.value.currentSessionId != draftSessionId) return@LaunchedEffect
         val shared = ShareInbox.take() ?: return@LaunchedEffect
         if (shared.text.isNotEmpty()) {
             val merged =

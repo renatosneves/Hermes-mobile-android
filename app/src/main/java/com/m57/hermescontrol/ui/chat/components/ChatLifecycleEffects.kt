@@ -33,6 +33,10 @@ import com.m57.hermescontrol.ui.chat.SecretPromptUi
 import com.m57.hermescontrol.ui.chat.SudoPromptUi
 import kotlinx.coroutines.flow.distinctUntilChanged
 
+private data class Optional<T>(
+    val value: T?,
+)
+
 @Composable
 fun ChatLifecycleEffects(
     sessionId: String?,
@@ -82,11 +86,17 @@ fun ChatLifecycleEffects(
         }
     }
 
-    // Land instantly at the bottom on a session switch (issue #682).
+    // Land instantly at the bottom on a session switch (issue #682), or back where you were
+    // reading if you left this chat scrolled up. Then remember where you are, for next time.
     LaunchedEffect(currentSessionId) {
-        if (currentSessionId != null) {
-            scrollController.jumpToBottom(animated = false)
-        }
+        val id = currentSessionId ?: return@LaunchedEffect
+        val saved = ChatPaneMemory.position(id)
+        val settling = if (saved != null) scrollController.restorePosition(saved) else scrollController.jumpToBottom()
+        settling.join()
+        snapshotFlow {
+            // Nothing on screen yet (a switch just cleared the list): not a position to keep.
+            if (listState.layoutInfo.totalItemsCount == 0) null else Optional(scrollController.currentPosition())
+        }.collect { now -> if (now != null) ChatPaneMemory.savePosition(id, now.value) }
     }
 
     // Refresh chat state when the app returns to the foreground.
