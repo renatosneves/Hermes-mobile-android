@@ -117,12 +117,33 @@ internal object BotsPresentation {
             profile.last_session?.last_active,
         ).maxOrNull()
 
+    /**
+     * Whether the bot is doing something right now. Sessions Hermes reports live ([live]: session
+     * key to "working" / "starting" / "waiting" / "idle") are taken at their word, so a chat that
+     * finished a moment ago no longer shows as working. Sessions running elsewhere (Telegram,
+     * Kanban workers) fall back to "touched in the last [WORKING_WINDOW_SECONDS]".
+     */
     fun isWorking(
         profile: ProfileInfo,
         nowSeconds: Double,
+        live: Map<String, String> = emptyMap(),
     ): Boolean {
-        val last = lastActive(profile) ?: return false
-        return nowSeconds - last <= WORKING_WINDOW_SECONDS
+        val sessions =
+            listOfNotNull(
+                profile.canonical_session?.let {
+                    setOfNotNull(it.id, it.resolved_id) to it.last_active
+                },
+                profile.last_session?.let { setOf(it.id) to it.last_active },
+                profile.worker_session?.let { setOf(it.id) to it.last_active },
+            )
+        return sessions.any { (keys, lastActive) ->
+            val status = keys.firstNotNullOfOrNull { live[it] }
+            if (status != null) {
+                status == "working" || status == "starting"
+            } else {
+                lastActive != null && nowSeconds - lastActive <= WORKING_WINDOW_SECONDS
+            }
+        }
     }
 
     fun isRecent(

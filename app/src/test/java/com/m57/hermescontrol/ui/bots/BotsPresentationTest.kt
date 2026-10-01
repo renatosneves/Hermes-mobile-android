@@ -53,6 +53,27 @@ class BotsPresentationTest {
     }
 
     @Test
+    fun `live status beats recent activity`() {
+        val now = 10_000.0
+        val justFinished =
+            ProfileInfo(name = "cos", canonical_session = CanonicalSessionInfo(id = "s", last_active = now - 10))
+        // Touched 10 s ago, but Hermes says the chat is idle: not working.
+        assertFalse(BotsPresentation.isWorking(justFinished, now, mapOf("s" to "idle")))
+        // A long tool call with no new message for minutes: still working.
+        val longTool =
+            ProfileInfo(name = "cos", canonical_session = CanonicalSessionInfo(id = "s", last_active = now - 600))
+        assertTrue(BotsPresentation.isWorking(longTool, now, mapOf("s" to "working")))
+        // An idle chat here doesn't hide a Kanban worker running elsewhere.
+        val worker =
+            ProfileInfo(
+                name = "web",
+                canonical_session = CanonicalSessionInfo(id = "s", last_active = now - 5),
+                worker_session = ProfileWorkerSummary(id = "w", last_active = now - 20),
+            )
+        assertTrue(BotsPresentation.isWorking(worker, now, mapOf("s" to "idle")))
+    }
+
+    @Test
     fun `relative time buckets`() {
         val now = 1_000_000.0
         val utc = ZoneOffset.UTC

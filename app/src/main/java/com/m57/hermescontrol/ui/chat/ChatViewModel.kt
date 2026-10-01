@@ -32,6 +32,7 @@ import com.m57.hermescontrol.data.ws.CommandBlocklist
 import com.m57.hermescontrol.data.ws.CommandCatalog
 import com.m57.hermescontrol.data.ws.ConnectionOperationParser
 import com.m57.hermescontrol.data.ws.ConnectionStatus
+import com.m57.hermescontrol.data.ws.EventGapDetector
 import com.m57.hermescontrol.data.ws.EventParser
 import com.m57.hermescontrol.data.ws.HermesWsClient
 import com.m57.hermescontrol.data.ws.JsonRpcError
@@ -795,8 +796,11 @@ class ChatViewModel(
 
         connectWebSocket(setLoading = false)
         viewModelScope.launch {
+            val gaps = EventGapDetector(HermesWsClient.EVENT_BUFFER) { wsClient.publishedEvents }
             wsClient.events.collect { event ->
                 try {
+                    // Fell behind and lost events: reload the open chat rather than trust its state.
+                    if (gaps.onReceived()) handleWsEvent(WsEvent.TranscriptResyncRequired(""))
                     handleWsEvent(event)
                 } catch (e: Exception) {
                     android.util.Log.e("ChatVM", "Uncaught in event loop", e)

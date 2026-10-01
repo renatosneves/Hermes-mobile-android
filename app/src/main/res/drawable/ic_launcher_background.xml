@@ -1,10 +1,36 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Solid brand background -->
+    <!-- Night-navy base, as in the Bots screen -->
     <path
-        android:fillColor="#1B1B2F"
+        android:fillColor="#0B1028"
         android:pathData="M0,0h108v108h-108z" />
+    <!-- Magenta glow from the top, violet from the bottom corner -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="54"
+                android:centerY="20"
+                android:gradientRadius="80"
+                android:type="radial">
+                <item android:color="#66E0287A" android:offset="0" />
+                <item android:color="#00E0287A" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="100"
+                android:centerY="108"
+                android:gradientRadius="70"
+                android:type="radial">
+                <item android:color="#802A1B45" android:offset="0" />
+                <item android:color="#002A1B45" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
 </vector>

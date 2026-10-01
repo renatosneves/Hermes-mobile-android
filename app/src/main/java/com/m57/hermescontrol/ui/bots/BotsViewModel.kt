@@ -63,11 +63,19 @@ data class BotsUiState(
     val avatars: Map<String, String> = emptyMap(),
     /** Bots with a live session waiting on you (approval or question). */
     val needsYou: Set<String> = emptySet(),
+    /** Live status of sessions Hermes is running here, by session key ("working", "idle", ...). */
+    val liveStatus: Map<String, String> = emptyMap(),
     /** Message counts at the time you last opened each bot. */
     val seenCounts: Map<String, Int> = emptyMap(),
     /** Latest line of each bot's conversation, Telegram style, by bot name. */
     val previews: Map<String, String> = emptyMap(),
 ) {
+    /** Whether [profile] is busy right now (see [BotsPresentation.isWorking]). */
+    fun isWorking(
+        profile: ProfileInfo,
+        nowSeconds: Double,
+    ): Boolean = BotsPresentation.isWorking(profile, nowSeconds, liveStatus)
+
     /** The row's preview: the fetched latest message, else the roster's short excerpt. */
     fun previewFor(profile: ProfileInfo): String =
         previews[profile.name]
@@ -470,7 +478,7 @@ class BotsViewModel(
     }
 
     private suspend fun refreshNeedsYou(profiles: List<ProfileInfo>) {
-        val waiting =
+        val live =
             runCatching {
                 val result =
                     HermesWsClient
@@ -480,17 +488,23 @@ class BotsViewModel(
                             suppressErrorEvent = true,
                         ).await()
                         .asJsonObject()
-                result
-                    ?.get("sessions")
-                    ?.let { it as? JsonArray }
-                    .orEmpty()
-                    .mapNotNull { it as? JsonObject }
-                    .filter { it.string("status") == "waiting" }
-                    .flatMap { listOfNotNull(it.string("session_key"), it.string("id")) }
-                    .toSet()
+                buildMap {
+                    result
+                        ?.get("sessions")
+                        ?.let { it as? JsonArray }
+                        .orEmpty()
+                        .mapNotNull { it as? JsonObject }
+                        .forEach { row ->
+                            val status = row.string("status") ?: return@forEach
+                            listOfNotNull(row.string("session_key"), row.string("id")).forEach { put(it, status) }
+                        }
+                }
             }.getOrNull() ?: return
+        val waiting = live.filterValues { it == "waiting" }.keys
         val names = BotsPresentation.needsYou(profiles, waiting)
-        if (names != _uiState.value.needsYou) _uiState.update { it.copy(needsYou = names) }
+        _uiState.update {
+            if (names == it.needsYou && live == it.liveStatus) it else it.copy(needsYou = names, liveStatus = live)
+        }
     }
 
     /**

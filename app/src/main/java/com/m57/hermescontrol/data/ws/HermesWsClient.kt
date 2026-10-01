@@ -47,6 +47,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Connection status for the WebSocket client.
@@ -264,9 +265,18 @@ object HermesWsClient {
 
     private val parsedEvents =
         MutableSharedFlow<WsEvent>(
-            extraBufferCapacity = 2048,
+            extraBufferCapacity = EVENT_BUFFER,
             onBufferOverflow = BufferOverflow.DROP_OLDEST,
         )
+
+    /** Events published so far, so a subscriber can tell when the buffer overflowed past it. */
+    private val publishedCount = AtomicLong(0)
+    val publishedEvents: Long get() = publishedCount.get()
+
+    private fun publishEvent(event: WsEvent): Boolean {
+        publishedCount.incrementAndGet()
+        return parsedEvents.tryEmit(event)
+    }
 
     /** Collect this from ViewModels to receive all parsed [WsEvent]s. */
     val events: SharedFlow<WsEvent> = parsedEvents.asSharedFlow()
@@ -771,6 +781,9 @@ object HermesWsClient {
      */
     const val REQUEST_TIMEOUT_MS: Long = 120_000L
 
+    /** Events held for slow subscribers before the oldest are dropped. */
+    const val EVENT_BUFFER: Int = 2048
+
     /** A single in-flight [request] awaiting its RPC result/error. */
     private data class PendingCall(
         val method: String,
@@ -1149,7 +1162,7 @@ object HermesWsClient {
                             // and request full transcript resync.
                             if (epochChanged) lastSeenSeq.clear()
                             if (latestSeq != null && !epochChanged) lastSeenSeq[sid] = latestSeq
-                            parsedEvents.tryEmit(WsEvent.TranscriptResyncRequired(sid))
+                            publishEvent(WsEvent.TranscriptResyncRequired(sid))
                             continue
                         }
                         val eventsList = (resultMap["events"] as? List<*>)?.filterIsInstance<Map<String, Any?>>()
@@ -1174,13 +1187,13 @@ object HermesWsClient {
                                     } else {
                                         parsedEvent
                                     }
-                                parsedEvents.tryEmit(finalEvent)
+                                publishEvent(finalEvent)
                             }
                         }
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Replay failed for session $sid: ${e.message}")
-                    parsedEvents.tryEmit(WsEvent.TranscriptResyncRequired(sid))
+                    publishEvent(WsEvent.TranscriptResyncRequired(sid))
                 }
             }
         } finally {
@@ -1195,7 +1208,7 @@ object HermesWsClient {
                                     if (heldSeq <= prev) continue
                                     lastSeenSeq[sid] = heldSeq
                                 }
-                                parsedEvents.tryEmit(heldEvent)
+                                publishEvent(heldEvent)
                             }
                         }
                     }
@@ -1425,7 +1438,7 @@ object HermesWsClient {
 
                         @Suppress("UNCHECKED_CAST")
                         val params = openRequest["params"] as? Map<String, Any?> ?: emptyMap()
-                        parsedEvents.tryEmit(WsEvent.ServerRequest(openId, method, params, replayed = true))
+                        publishEvent(WsEvent.ServerRequest(openId, method, params, replayed = true))
                     }
 
                     if (rpc.id == null) {
@@ -1453,7 +1466,7 @@ object HermesWsClient {
                                 return
                             }
                             lastSeenSeq[sid] = seq
-                            parsedEvents.tryEmit(finalEvent)
+                            publishEvent(finalEvent)
                             return
                         }
                     }
@@ -1506,7 +1519,7 @@ object HermesWsClient {
             // tryEmit on a DROP_OLDEST flow only returns false when the
             // buffer is full AND no subscriber is draining; with extraBuffer=2048
             // and always-on init collectors this is unreachable in practice.
-            parsedEvents.tryEmit(event)
+            publishEvent(event)
         }
 
         override fun onClosing(

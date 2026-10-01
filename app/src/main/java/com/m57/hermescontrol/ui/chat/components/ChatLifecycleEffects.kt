@@ -10,7 +10,11 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
@@ -53,6 +57,10 @@ fun ChatLifecycleEffects(
     // Switch to session from notification/history
     val pendingNavigation = NavigationController.pendingChatNavigation
     val pendingNewChatNavigation = NavigationController.pendingNewChatNavigation
+    // The session this screen was last pointed at. A reconnect must not switch back to it:
+    // after /new (or any switch inside the chat) that would drop you into the old session and
+    // hide what you just sent in the new one.
+    var appliedSessionId by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(sessionId, pendingNavigation, pendingNewChatNavigation, connectionStatus) {
         if (connectionStatus != ConnectionStatus.CONNECTED) return@LaunchedEffect
         val newChatRequest = NavigationController.consumePendingNewChatNavigation()
@@ -62,7 +70,8 @@ fun ChatLifecycleEffects(
             return@LaunchedEffect
         }
         val target = request?.sessionId ?: sessionId
-        if (!target.isNullOrBlank()) {
+        if (!target.isNullOrBlank() && (request != null || target != appliedSessionId)) {
+            appliedSessionId = target
             viewModel.switchSession(target)
         }
         if (request?.scrollToBottom == true) {

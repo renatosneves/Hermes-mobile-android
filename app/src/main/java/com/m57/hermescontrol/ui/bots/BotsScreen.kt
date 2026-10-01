@@ -280,6 +280,7 @@ fun BotsScreen(
                         needsYou = selected?.name in state.needsYou,
                         sessionId = chatSessionId,
                         now = now,
+                        working = selected?.let { state.isWorking(it, now) } == true,
                         baseScheme = baseScheme,
                     )
                 }
@@ -299,6 +300,7 @@ fun BotsScreen(
                     needsYou = selected.name in state.needsYou,
                     sessionId = chatSessionId,
                     now = now,
+                    working = state.isWorking(selected, now),
                     baseScheme = baseScheme,
                     onBack = closeChat,
                 )
@@ -378,7 +380,7 @@ private fun BotsRail(
     var filter by rememberSaveable { mutableStateOf(RailFilter.ALL) }
     // Bots that need you float to the top.
     val bots = state.displayProfiles.sortedByDescending { it.name in state.needsYou }
-    val working = bots.filter { BotsPresentation.isWorking(it, now) }
+    val working = bots.filter { state.isWorking(it, now) }
     val groups = state.displayGroups
     val shownBots =
         when (filter) {
@@ -519,6 +521,7 @@ private fun BotsRail(
                                     BotsPresentation.unreadCount(profile, state.seenCounts[profile.name])
                                 },
                             preview = state.previewFor(profile),
+                            working = state.isWorking(profile, now),
                             onClick = { onOpenBot(profile) },
                             onLongClick = { onEditBot(profile) },
                         )
@@ -807,12 +810,12 @@ private fun BotRow(
     needsYou: Boolean,
     unread: Int,
     preview: String,
+    working: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val hue = hueFor(profile)
-    val working = BotsPresentation.isWorking(profile, now)
     val recent = BotsPresentation.isRecent(profile, now)
     val title = profile.effectiveTitle
     val summary = BotsPresentation.shortSummary(profile.effectiveDescription)
@@ -1025,6 +1028,7 @@ private fun BotsChatPane(
     needsYou: Boolean,
     sessionId: String?,
     now: Double,
+    working: Boolean,
     baseScheme: androidx.compose.material3.ColorScheme,
     onBack: (() -> Unit)? = null,
 ) {
@@ -1070,7 +1074,14 @@ private fun BotsChatPane(
                         voiceTitle = profile.effectiveTitle,
                         voiceImageUrl = imageUrl,
                         titleOverride = {
-                            PaneTitle(profile = profile, hue = hue, now = now, imageUrl = imageUrl, needsYou = needsYou)
+                            PaneTitle(
+                                profile = profile,
+                                hue = hue,
+                                now = now,
+                                imageUrl = imageUrl,
+                                needsYou = needsYou,
+                                working = working,
+                            )
                         },
                     )
                 }
@@ -1086,8 +1097,8 @@ private fun PaneTitle(
     now: Double,
     imageUrl: String?,
     needsYou: Boolean,
+    working: Boolean,
 ) {
-    val working = BotsPresentation.isWorking(profile, now)
     val recent = BotsPresentation.isRecent(profile, now)
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("bots_pane_title")) {
         BotOrb(
