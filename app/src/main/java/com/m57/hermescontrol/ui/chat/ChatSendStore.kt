@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.m57.hermescontrol.data.model.Attachment
 import com.m57.hermescontrol.data.model.BusySendMode
+import com.m57.hermescontrol.diagnostics.ChatTrace
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -146,6 +147,28 @@ class ChatSendStore(
         if (prefs != null && !prefs.edit().putString("rows", json.encodeToString(next)).commit()) {
             error("Could not save chat send queue")
         }
+        traceChanges(rows, next)
         rows = next
+    }
+
+    private fun traceChanges(
+        before: List<PendingSend>,
+        after: List<PendingSend>,
+    ) {
+        val old = before.associateBy { it.id }
+        val new = after.associateBy { it.id }
+        for ((id, row) in new) {
+            val was = old[id]
+            if (was == null) {
+                ChatTrace.note(
+                    "outbox + ${id.take(
+                        8,
+                    )} ${row.state} session=${row.sessionId.take(12)} ${ChatTrace.snippet(row.text)}",
+                )
+            } else if (was.state != row.state || was.userRowId != row.userRowId) {
+                ChatTrace.note("outbox ${id.take(8)} ${was.state} -> ${row.state} row=${row.userRowId}")
+            }
+        }
+        for (id in old.keys - new.keys) ChatTrace.note("outbox - ${id.take(8)} (${old.getValue(id).state})")
     }
 }

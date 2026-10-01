@@ -11,6 +11,8 @@ object ChatPaneMemory {
         val index: Int,
         val offset: Int,
         val key: Any?,
+        /** Rows in the list when saved, to find the row again if older pages load differently. */
+        val total: Int = 0,
     )
 
     private val drafts = lru<String>()

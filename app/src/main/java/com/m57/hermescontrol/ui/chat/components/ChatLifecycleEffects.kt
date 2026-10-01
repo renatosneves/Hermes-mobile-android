@@ -24,6 +24,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.m57.hermescontrol.NavigationController
 import com.m57.hermescontrol.data.ws.ConnectionStatus
+import com.m57.hermescontrol.diagnostics.ChatTrace
 import com.m57.hermescontrol.notification.ReplyNotificationTracker
 import com.m57.hermescontrol.notification.correlationScopeId
 import com.m57.hermescontrol.ui.chat.ChatMessage
@@ -94,8 +95,14 @@ fun ChatLifecycleEffects(
         val settling = if (saved != null) scrollController.restorePosition(saved) else scrollController.jumpToBottom()
         settling.join()
         snapshotFlow {
-            // Nothing on screen yet (a switch just cleared the list): not a position to keep.
-            if (listState.layoutInfo.totalItemsCount == 0) null else Optional(scrollController.currentPosition())
+            // Only while this chat's own rows are on screen: during a switch the list briefly
+            // shows nothing (or the next chat), which must not overwrite where you were.
+            val shown = viewModel.uiState.value
+            if (shown.currentSessionId != id || shown.messages.isEmpty() || listState.layoutInfo.totalItemsCount == 0) {
+                null
+            } else {
+                Optional(scrollController.currentPosition())
+            }
         }.collect { now -> if (now != null) ChatPaneMemory.savePosition(id, now.value) }
     }
 
@@ -104,7 +111,12 @@ fun ChatLifecycleEffects(
         val observer =
             LifecycleEventObserver { _, event ->
                 when (event) {
+                    Lifecycle.Event.ON_STOP -> {
+                        ChatTrace.note("app to background")
+                    }
+
                     Lifecycle.Event.ON_START -> {
+                        ChatTrace.note("app to foreground")
                         viewModel.refreshSettings()
                         viewModel.refreshCurrentSession()
                     }

@@ -40,6 +40,7 @@ import com.m57.hermescontrol.data.ws.WsEvent
 import com.m57.hermescontrol.data.ws.WsMethods
 import com.m57.hermescontrol.data.ws.toAny
 import com.m57.hermescontrol.data.ws.toJsonElement
+import com.m57.hermescontrol.diagnostics.ChatTrace
 import com.m57.hermescontrol.notification.ReplyNotificationTracker
 import com.m57.hermescontrol.notification.captureTurnBoundary
 import com.m57.hermescontrol.notification.correlationScopeId
@@ -818,6 +819,7 @@ class ChatViewModel(
         // B7 (Jun 30 2026, kanban t_connection_loading): clear loading state on connection failure or status change
         viewModelScope.launch {
             wsClient.connectionStatus.collect { status ->
+                ChatTrace.note("connection $status")
                 if (status == ConnectionStatus.DISCONNECTED ||
                     status == ConnectionStatus.RECONNECTING ||
                     status == ConnectionStatus.NO_NETWORK ||
@@ -888,12 +890,40 @@ class ChatViewModel(
         // previous profile's context never leaks into the new profile's chat.
         viewModelScope.launch {
             ProfileSwitchCoordinator.chatReset
-                .collect { _ ->
+                .collect { name ->
+                    ChatTrace.note("chat wiped by profile switch to $name")
                     pendingGoneSessionNotice = false
                     sessionHasServerPresence = false
                     userMovedOn = false
                     resetSessionState(sessionId = null, title = "Hermes", isLoading = true)
                 }
+        }
+        // Records any message you sent that disappears from the open chat, with what led up to
+        // it, so the cause can be traced from a report rather than guessed.
+        viewModelScope.launch {
+            var shownSession: String? = null
+            var shownMessages: List<ChatMessage> = emptyList()
+            var shownUsers: Map<String, ChatMessage> = emptyMap()
+            _uiState.collect { state ->
+                if (state.messages === shownMessages && state.currentSessionId == shownSession) return@collect
+                val users = state.messages.filter { it.role == MessageRole.USER }.associateBy { it.id }
+                if (state.currentSessionId == shownSession && shownUsers.isNotEmpty()) {
+                    val texts = users.values.mapTo(mutableSetOf()) { it.content.trim() }
+                    (shownUsers.keys - users.keys)
+                        .map(shownUsers::getValue)
+                        .filter { it.content.trim() !in texts }
+                        .forEach {
+                            ChatTrace.note(
+                                "VANISHED sent message ${it.id.take(8)} ${ChatTrace.snippet(it.content)} " +
+                                    "provenance=${it.messageProvenance} server=${it.canonicalRestId != null} " +
+                                    "session=${state.currentSessionId?.take(12)}",
+                            )
+                        }
+                }
+                shownSession = state.currentSessionId
+                shownMessages = state.messages
+                shownUsers = users
+            }
         }
         // Opening a bot points chat at its profile without a reconnect: pick up that
         // profile's sessions, commands and models.
@@ -987,6 +1017,7 @@ class ChatViewModel(
     // ── WS Event Handling ────────────────────────────────────────────────
 
     private fun handleGatewayReady() {
+        ChatTrace.note("gateway ready, open session=${_uiState.value.currentSessionId?.take(12)}")
         // A (re)connect is a fresh start: clear any stale resume error and
         // cancel a pending retry — the re-resume below rebinds the session
         // on the new socket (desktop parity: gatewayBecameOpen re-resumes
@@ -1122,6 +1153,7 @@ class ChatViewModel(
             }
 
             is WsEvent.MessageStart -> {
+                ChatTrace.note("reply started session=${event.sessionId?.take(12)}")
                 if (isCurrentSession(event.sessionId)) {
                     mainTurnEpoch++
                     mainTurnBusy = true
@@ -1134,6 +1166,7 @@ class ChatViewModel(
             }
 
             is WsEvent.MessageComplete -> {
+                ChatTrace.note("reply finished session=${event.sessionId?.take(12)}")
                 if (isCurrentSession(event.sessionId)) {
                     mainTurnBusy = false
                     lastMainCompletionAt = System.currentTimeMillis()
@@ -4478,6 +4511,7 @@ class ChatViewModel(
         // A fresh create has no persisted row until the first prompt.
         sessionHasServerPresence = false
         if (byUser) userMovedOn = true
+        ChatTrace.note("new session (byUser=$byUser), leaving ${_uiState.value.currentSessionId?.take(12)}")
         val generation = resetSessionState(sessionId = null, title = "Hermes", isLoading = setLoading)
         viewModelScope.launch(ioDispatcher) {
             wsClient.send(
@@ -4519,6 +4553,7 @@ class ChatViewModel(
 
     fun refreshCurrentSession() {
         val sessionId = _uiState.value.currentSessionId ?: return
+        ChatTrace.note("foreground refresh session=${sessionId.take(12)} presence=$sessionHasServerPresence")
         // No server-side copy yet (created but never prompted): the REST
         // transcript 404s and would burn the resume retry budget for nothing.
         if (!sessionHasServerPresence) return
@@ -4858,6 +4893,7 @@ class ChatViewModel(
 
     fun switchSession(sessionId: String) {
         if (sessionId == _uiState.value.currentSessionId) return
+        ChatTrace.note("open session ${sessionId.take(12)} (was ${_uiState.value.currentSessionId?.take(12)})")
         userMovedOn = false
 
         // The id came from the gateway's own session list / picker — its row
@@ -5110,6 +5146,10 @@ class ChatViewModel(
                                         mediaUrl = ::gatewayMediaUrl,
                                     )
                                 } ?: return@launch
+                            ChatTrace.note(
+                                "history loaded session=${sessionId.take(12)}: ${raw.size} server rows, " +
+                                    "${_uiState.value.messages.size} shown",
+                            )
                             persistHistoryPage(page, sessionId)
                             if (!valid()) return@launch
                             latestPaging = useLatest
@@ -5425,6 +5465,7 @@ class ChatViewModel(
         generation: Long,
         errorMessage: String,
     ) {
+        ChatTrace.note("resume failed session=${sessionId.take(12)}: ${errorMessage.take(160)}")
         // Only handle if still on this session.
         if (!isCurrentSessionRequest(sessionId, generation)) return
         _uiState.update { it.copy(errorMessage = null, isSessionReady = false) }

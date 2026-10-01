@@ -13,6 +13,7 @@ import com.m57.hermescontrol.data.local.AuthManager
 import com.m57.hermescontrol.data.local.SessionListCacheStore
 import com.m57.hermescontrol.data.remote.NetworkMonitor
 import com.m57.hermescontrol.data.remote.OkHttpProvider
+import com.m57.hermescontrol.diagnostics.ChatTrace
 import com.m57.hermescontrol.diagnostics.FreezeReporter
 import com.m57.hermescontrol.notification.TurnCorrelationTracker
 import com.m57.hermescontrol.ui.analytics.AnalyticsPreloader
@@ -30,6 +31,7 @@ class HermesControlApp :
     override fun onCreate() {
         super.onCreate()
         FreezeReporter.init(this)
+        ChatTrace.init(this)
         AuthManager.init(this)
         NetworkMonitor.init(this)
         SessionListCacheStore.init(this)

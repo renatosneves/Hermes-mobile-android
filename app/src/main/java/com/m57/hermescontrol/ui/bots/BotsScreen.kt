@@ -38,6 +38,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Menu
@@ -103,6 +104,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.m57.hermescontrol.NavigationController
 import com.m57.hermescontrol.R
 import com.m57.hermescontrol.data.model.ProfileInfo
+import com.m57.hermescontrol.diagnostics.ChatTrace
 import com.m57.hermescontrol.share.ShareInbox
 import com.m57.hermescontrol.theme.BotsPalette
 import com.m57.hermescontrol.ui.chat.ChatScreen
@@ -693,6 +695,16 @@ private fun RailHeader(
                     onClick = {
                         menuOpen = false
                         onRefresh()
+                    },
+                )
+                // What the chat recorded, for tracing a problem seen on the phone.
+                val context = LocalContext.current
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.chat_report_send)) },
+                    leadingIcon = { Icon(Icons.Filled.BugReport, contentDescription = null) },
+                    onClick = {
+                        menuOpen = false
+                        ChatTrace.share(context)
                     },
                 )
             }
