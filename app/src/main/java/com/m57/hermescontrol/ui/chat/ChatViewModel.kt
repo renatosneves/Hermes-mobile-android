@@ -899,11 +899,13 @@ class ChatViewModel(
         // profile's sessions, commands and models.
         viewModelScope.launch {
             ProfileSwitchCoordinator.switched.collect { _ ->
-                if (wsClient.connectionStatus.value == ConnectionStatus.CONNECTED) {
-                    loadSessions()
-                    fetchCommandCatalog()
-                    modelSwitchDelegate.preloadModelOptions()
-                }
+                runCatching {
+                    if (wsClient.connectionStatus.value == ConnectionStatus.CONNECTED) {
+                        loadSessions()
+                        fetchCommandCatalog()
+                        modelSwitchDelegate.preloadModelOptions()
+                    }
+                }.onFailure { android.util.Log.w("ChatVM", "Profile refresh failed", it) }
             }
         }
         // Same wipe when the CONNECTION profile changes (different server):

@@ -316,7 +316,9 @@ class ChatViewModelTest {
         // Main-dispatched collector between test classes.
         every { AuthManager.dataScopeFlow } returns MutableStateFlow<DataScope?>(null)
         mockkObject(ProfileSwitchCoordinator)
-        every { ProfileSwitchCoordinator.switched } returns mockSwitchFlow
+        // A full profile switch (the one that wipes chat) arrives on chatReset.
+        every { ProfileSwitchCoordinator.chatReset } returns mockSwitchFlow
+        every { ProfileSwitchCoordinator.switched } returns MutableSharedFlow<String>()
         every { ProfileSwitchCoordinator.connectionSwitched } returns MutableSharedFlow<String>()
         every { AuthManager.isTypingEffectEnabled() } returns true
         every { AuthManager.getBusySendMode() } returns BusySendMode.CORRECT

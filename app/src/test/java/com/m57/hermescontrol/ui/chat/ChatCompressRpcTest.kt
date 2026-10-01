@@ -127,6 +127,7 @@ class ChatCompressRpcTest {
         mockkObject(HermesDatabase)
         mockkObject(ProfileSwitchCoordinator)
         every { ProfileSwitchCoordinator.switched } returns MutableSharedFlow<String>()
+        every { ProfileSwitchCoordinator.chatReset } returns MutableSharedFlow<String>()
         every { ProfileSwitchCoordinator.connectionSwitched } returns MutableSharedFlow<String>()
 
         app = mockk(relaxed = true)
