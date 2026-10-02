@@ -192,6 +192,14 @@ interface HermesApiService : KanbanApiService {
         @Query("exclude_sources") excludeSources: String? = null,
     ): Response<SessionListResponse>
 
+    /** Another bot's newest sessions; the hand-off view uses it to find the run Ask started. */
+    @GET("api/sessions")
+    suspend fun getProfileSessions(
+        @Query("profile") profile: String,
+        @Query("limit") limit: Int = 8,
+        @Query("order") order: String = "recent",
+    ): Response<SessionListResponse>
+
     @GET("api/sessions/search")
     suspend fun searchSessions(
         @Query("q") q: String,

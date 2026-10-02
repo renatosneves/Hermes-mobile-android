@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.VerticalSplit
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
@@ -60,6 +61,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -70,6 +72,7 @@ import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -111,12 +114,15 @@ import com.m57.hermescontrol.diagnostics.ChatTrace
 import com.m57.hermescontrol.share.ShareInbox
 import com.m57.hermescontrol.theme.BotsPalette
 import com.m57.hermescontrol.ui.chat.ChatScreen
+import com.m57.hermescontrol.ui.chat.ChatViewModel
 import com.m57.hermescontrol.ui.chat.VoiceLiveCalls
 import com.m57.hermescontrol.ui.common.DisableDrawerGestures
 import com.m57.hermescontrol.ui.common.LocalDrawerGestureController
 import com.m57.hermescontrol.ui.common.NavIcon
 import com.m57.hermescontrol.ui.common.ToastEffect
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /** Width from which the Bots home shows the chat beside the list (an unfolded Fold, a tablet). */
@@ -142,6 +148,7 @@ private val Mono = FontFamily.Monospace
  * Grok-style Bots home: the bot rail on the left and the selected bot's conversation on the
  * right when there is room. On a narrow screen the rail fills it and a tap opens the chat.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun BotsScreen(
     modifier: Modifier = Modifier,
@@ -187,6 +194,30 @@ fun BotsScreen(
 
     ToastEffect(toastMessage = state.toastMessage, onClearToast = { viewModel.clearToast() })
 
+    // A bot handing work to another: followed while the screen is on show, closed once it's done.
+    val handoffViewModel: HandoffViewModel = viewModel { HandoffViewModel() }
+    val handoff by handoffViewModel.state.collectAsStateWithLifecycle()
+    var handoffMode by remember { mutableStateOf(HandoffPrefs.mode(context)) }
+    var showHandoffSetting by remember { mutableStateOf(false) }
+    var handoffSheetOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(handoff?.key) {
+        if (handoff != null) {
+            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) { handoffViewModel.follow() }
+        } else {
+            handoffSheetOpen = false
+        }
+    }
+    LaunchedEffect(handoff?.key, handoff?.settled, handoff?.pinned) {
+        val h = handoff
+        if (h != null && h.settled && !h.pinned) {
+            delay(HANDOFF_CLOSE_DELAY_MS)
+            handoffViewModel.close()
+        }
+    }
+    LaunchedEffect(handoffMode) {
+        if (handoffMode == HandoffMode.OFF) handoffViewModel.close()
+    }
+
     val baseScheme = MaterialTheme.colorScheme
     MaterialTheme(colorScheme = BotsPalette.railScheme(baseScheme)) {
         BotsDialogs(
@@ -201,6 +232,16 @@ fun BotsScreen(
             showCreateGroupDialog = showCreateGroupDialog,
             onDismissCreateGroup = { showCreateGroupDialog = false },
         )
+        if (showHandoffSetting) {
+            HandoffModeDialog(
+                current = handoffMode,
+                onPick = {
+                    handoffMode = it
+                    HandoffPrefs.setMode(context, it)
+                },
+                onDismiss = { showHandoffSetting = false },
+            )
+        }
 
         BoxWithConstraints(
             modifier =
@@ -250,6 +291,7 @@ fun BotsScreen(
                         now = nowSeconds()
                         viewModel.loadBots(isRefresh = true)
                     },
+                    onHandoffSetting = { showHandoffSetting = true },
                 )
             }
 
@@ -271,12 +313,75 @@ fun BotsScreen(
             val selectedName = openBotName ?: state.activeProfileName
             val selected = state.profiles.firstOrNull { it.name == selectedName }
             val chatSessionId = openSessionId ?: selected?.canonicalSessionId()
+            val handoffBot =
+                handoff?.let { h ->
+                    val target = state.profiles.firstOrNull { it.name.equals(h.target, ignoreCase = true) }
+                    val title = target?.effectiveTitle ?: h.target.replaceFirstChar { it.uppercase() }
+                    HandoffBot(
+                        title = title,
+                        hue = target?.let { hueFor(it) } ?: BotsPalette.Muted,
+                        initials = BotsPresentation.initials(title),
+                        shapeKey = target?.botMeta()?.avatar?.shape,
+                        imageUrl = target?.let { state.imageFor(it) },
+                    )
+                }
+            val handoffPane: @Composable (Modifier, () -> Unit) -> Unit = { paneModifier, onClose ->
+                val h = handoff
+                if (h != null && handoffBot != null) {
+                    val target = state.profiles.firstOrNull { it.name.equals(h.target, ignoreCase = true) }
+                    HandoffPane(
+                        state = h,
+                        bot = handoffBot,
+                        sourceTitle = selected?.effectiveTitle ?: h.source.orEmpty(),
+                        onClose = onClose,
+                        onTogglePin = handoffViewModel::togglePinned,
+                        onOpenChat =
+                            if (target != null && h.sessionId != null) {
+                                {
+                                    val sessionId = h.sessionId
+                                    handoffViewModel.close()
+                                    scope.launch {
+                                        viewModel.selectBot(target)
+                                        openBotName = target.name
+                                        openSessionId = sessionId
+                                        viewModel.markSeen(target)
+                                    }
+                                }
+                            } else {
+                                null
+                            },
+                        modifier = paneModifier,
+                    )
+                }
+            }
+            val onHandoffMessages: (String?, List<com.m57.hermescontrol.ui.chat.ChatMessage>) -> Unit =
+                { sessionId, messages ->
+                    if (handoffMode != HandoffMode.OFF) {
+                        handoffViewModel.observe(sessionId, selected?.name, messages)
+                    }
+                }
+            if (handoffSheetOpen && handoff != null) {
+                ModalBottomSheet(
+                    onDismissRequest = { handoffSheetOpen = false },
+                    containerColor = BotsPalette.Rail,
+                ) {
+                    HandoffSheetContent {
+                        handoffPane(Modifier) {
+                            handoffSheetOpen = false
+                            if (handoff?.done == true) handoffViewModel.close()
+                        }
+                    }
+                }
+            }
             if (twoPane) {
                 val railWidth = (maxWidth * 0.42f).coerceIn(300.dp, 460.dp)
                 // The bot list can be folded away so the chat takes the whole screen; the choice
                 // is kept between launches. With no bot open the list always shows.
                 var listHidden by remember { mutableStateOf(BotsLayoutPrefs.listHidden(context)) }
-                val showList = !listHidden || selected == null
+                // Side by side: the list makes way while the other bot's pane is open.
+                val split = handoffMode == HandoffMode.SPLIT && handoff?.expanded == true
+                val showList = (!listHidden && !split) || selected == null
+                val handoffWidth = (maxWidth * 0.46f).coerceIn(320.dp, 560.dp)
                 Row(modifier = Modifier.fillMaxSize()) {
                     AnimatedVisibility(
                         visible = showList,
@@ -310,7 +415,33 @@ fun BotsScreen(
                                 listHidden = showList
                                 BotsLayoutPrefs.setListHidden(context, listHidden)
                             },
+                        onChatMessages = onHandoffMessages,
+                        handoff = handoff?.takeIf { handoffMode == HandoffMode.STRIP || !it.expanded },
+                        handoffBot = handoffBot,
+                        onHandoffStrip = {
+                            if (handoffMode == HandoffMode.SPLIT) {
+                                handoffViewModel.setExpanded(true)
+                            } else {
+                                handoffSheetOpen = true
+                            }
+                        },
                     )
+                    AnimatedVisibility(
+                        visible = split && handoff != null,
+                        enter = expandHorizontally(expandFrom = Alignment.Start) + fadeIn(),
+                        exit = shrinkHorizontally(shrinkTowards = Alignment.Start) + fadeOut(),
+                    ) {
+                        Row {
+                            Hinge()
+                            handoffPane(Modifier.width(handoffWidth).fillMaxHeight().statusBarsPadding()) {
+                                if (handoff?.done == true) {
+                                    handoffViewModel.close()
+                                } else {
+                                    handoffViewModel.setExpanded(false)
+                                }
+                            }
+                        }
+                    }
                 }
             } else if (phoneChatOpen && selected != null) {
                 val closeChat = {
@@ -331,6 +462,10 @@ fun BotsScreen(
                     working = state.isWorking(selected, now),
                     baseScheme = baseScheme,
                     onBack = closeChat,
+                    onChatMessages = onHandoffMessages,
+                    handoff = handoff,
+                    handoffBot = handoffBot,
+                    onHandoffStrip = { handoffSheetOpen = true },
                 )
             } else {
                 rail(Modifier.fillMaxSize(), null)
@@ -403,6 +538,7 @@ private fun BotsRail(
     onCreateGroup: () -> Unit,
     onToggleHidden: () -> Unit,
     onRefresh: () -> Unit,
+    onHandoffSetting: () -> Unit,
 ) {
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var filter by rememberSaveable { mutableStateOf(RailFilter.ALL) }
@@ -449,6 +585,7 @@ private fun BotsRail(
             onCreateGroup = onCreateGroup,
             onToggleHidden = onToggleHidden,
             onRefresh = onRefresh,
+            onHandoffSetting = onHandoffSetting,
         )
 
         val shared by ShareInbox.pending.collectAsStateWithLifecycle()
@@ -585,6 +722,7 @@ private fun RailHeader(
     onCreateGroup: () -> Unit,
     onToggleHidden: () -> Unit,
     onRefresh: () -> Unit,
+    onHandoffSetting: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     Row(
@@ -721,6 +859,15 @@ private fun RailHeader(
                         menuOpen = false
                         onRefresh()
                     },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.handoff_view_setting)) },
+                    leadingIcon = { Icon(Icons.Filled.VerticalSplit, contentDescription = null) },
+                    onClick = {
+                        menuOpen = false
+                        onHandoffSetting()
+                    },
+                    modifier = Modifier.testTag("bots_handoff_setting"),
                 )
                 // What the chat recorded, for tracing a problem seen on the phone.
                 val context = LocalContext.current
@@ -1070,6 +1217,10 @@ private fun BotsChatPane(
     baseScheme: androidx.compose.material3.ColorScheme,
     onBack: (() -> Unit)? = null,
     listToggle: NavIcon.Action? = null,
+    onChatMessages: ((String?, List<com.m57.hermescontrol.ui.chat.ChatMessage>) -> Unit)? = null,
+    handoff: HandoffState? = null,
+    handoffBot: HandoffBot? = null,
+    onHandoffStrip: () -> Unit = {},
 ) {
     val targetHue = profile?.let { hueFor(it) } ?: BotsPalette.Muted
     val hue by animateColorAsState(targetHue, animationSpec = tween(600), label = "pane-hue")
@@ -1104,8 +1255,19 @@ private fun BotsChatPane(
             MaterialTheme(colorScheme = BotsPalette.chatScheme(baseScheme, targetHue)) {
                 // The rail owns drawer gestures for this screen; the embedded chat must not
                 // reconcile its own preference over it (issue #619).
+                val chatViewModel: ChatViewModel = viewModel()
+                if (onChatMessages != null) {
+                    val latest by rememberUpdatedState(onChatMessages)
+                    LaunchedEffect(chatViewModel) {
+                        chatViewModel.uiState
+                            .map { it.currentSessionId to it.messages }
+                            .distinctUntilChanged()
+                            .collect { (sessionId, messages) -> latest(sessionId, messages) }
+                    }
+                }
                 CompositionLocalProvider(LocalDrawerGestureController provides null) {
                     ChatScreen(
+                        viewModel = chatViewModel,
                         modifier = Modifier.fillMaxSize(),
                         onOpenDrawer = null,
                         sessionId = sessionId,
@@ -1123,6 +1285,19 @@ private fun BotsChatPane(
                                 working = working,
                             )
                         },
+                    )
+                }
+                // The other bot's progress, under the chat's top bar; a tap opens it in full.
+                if (handoff != null && handoffBot != null) {
+                    HandoffStrip(
+                        state = handoff,
+                        bot = handoffBot,
+                        onClick = onHandoffStrip,
+                        modifier =
+                            Modifier
+                                .align(Alignment.TopCenter)
+                                .statusBarsPadding()
+                                .padding(start = 12.dp, end = 12.dp, top = 68.dp),
                     )
                 }
             }
