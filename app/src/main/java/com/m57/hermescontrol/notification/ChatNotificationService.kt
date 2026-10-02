@@ -180,15 +180,17 @@ class ChatNotificationService : Service() {
                                                     coalesceTurnRow(plan.sessionId, it)
                                                 },
                                         )
-                                        // The wait is over — retire the foreground
-                                        // service. The reply notification above
-                                        // replaces the persistent "waiting" one,
-                                        // and the pendingReply flag is cleared by
-                                        // HermesWsClient's own collector, so the
-                                        // service is not restarted on the next
-                                        // ON_STOP (issue #794).
+                                        // This turn's wait is over — retire the foreground
+                                        // service unless another bot's turn is still running.
+                                        // The reply notification above replaces the persistent
+                                        // "waiting" one, and HermesWsClient's own collector
+                                        // clears this session's pending turn, so the service is
+                                        // not restarted on the next ON_STOP (issue #794).
                                         // A delayed completion must not retire a newer turn/start.
-                                        BackgroundConnectionController.default.onReplyCompleted(generation)
+                                        BackgroundConnectionController.default.onReplyCompleted(
+                                            generation,
+                                            stillPending = HermesWsClient.isReplyPendingExcept(event.sessionId),
+                                        )
                                     }
 
                                     is WsEvent.ClarifyRequest -> {

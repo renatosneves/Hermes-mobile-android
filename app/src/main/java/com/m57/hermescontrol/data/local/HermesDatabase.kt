@@ -180,7 +180,10 @@ abstract class HermesDatabase : RoomDatabase() {
                 val plaintextHeader = "SQLite format 3\u0000"
                 !header.contentEquals(plaintextHeader.toByteArray())
             } catch (_: Exception) {
-                false // if we can't read it, treat as plaintext and delete
+                // An unreadable header (e.g. a transient I/O error) is not proof of a
+                // plaintext v1 file. Keep it: deleting would silently wipe every
+                // cached chat, while a genuinely bad file still fails loudly on open.
+                true
             }
 
         /** For testing — inject a custom instance. */
