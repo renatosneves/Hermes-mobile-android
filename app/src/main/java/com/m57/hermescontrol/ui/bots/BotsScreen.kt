@@ -200,12 +200,14 @@ fun BotsScreen(
     var handoffMode by remember { mutableStateOf(HandoffPrefs.mode(context)) }
     var showHandoffSetting by remember { mutableStateOf(false) }
     var handoffSheetOpen by remember { mutableStateOf(false) }
-    LaunchedEffect(handoff?.key) {
-        if (handoff != null) {
+    val handoffFollowing by handoffViewModel.following.collectAsStateWithLifecycle()
+    LaunchedEffect(handoffFollowing) {
+        if (handoffFollowing) {
             lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) { handoffViewModel.follow() }
-        } else {
-            handoffSheetOpen = false
         }
+    }
+    LaunchedEffect(handoff == null) {
+        if (handoff == null) handoffSheetOpen = false
     }
     LaunchedEffect(handoff?.key, handoff?.settled, handoff?.pinned) {
         val h = handoff
@@ -215,7 +217,7 @@ fun BotsScreen(
         }
     }
     LaunchedEffect(handoffMode) {
-        if (handoffMode == HandoffMode.OFF) handoffViewModel.close()
+        if (handoffMode == HandoffMode.OFF) handoffViewModel.closeAll()
     }
 
     val baseScheme = MaterialTheme.colorScheme
@@ -313,25 +315,26 @@ fun BotsScreen(
             val selectedName = openBotName ?: state.activeProfileName
             val selected = state.profiles.firstOrNull { it.name == selectedName }
             val chatSessionId = openSessionId ?: selected?.canonicalSessionId()
-            val handoffBot =
-                handoff?.let { h ->
-                    val target = state.profiles.firstOrNull { it.name.equals(h.target, ignoreCase = true) }
-                    val title = target?.effectiveTitle ?: h.target.replaceFirstChar { it.uppercase() }
-                    HandoffBot(
-                        title = title,
-                        hue = target?.let { hueFor(it) } ?: BotsPalette.Muted,
-                        initials = BotsPresentation.initials(title),
-                        shapeKey = target?.botMeta()?.avatar?.shape,
-                        imageUrl = target?.let { state.imageFor(it) },
-                    )
-                }
+            val handoffBot: (String) -> HandoffBot = { name ->
+                val target = state.profiles.firstOrNull { it.name.equals(name, ignoreCase = true) }
+                val title = target?.effectiveTitle ?: name.replaceFirstChar { it.uppercase() }
+                HandoffBot(
+                    title = title,
+                    hue = target?.let { hueFor(it) } ?: BotsPalette.Muted,
+                    initials = BotsPresentation.initials(title),
+                    shapeKey = target?.botMeta()?.avatar?.shape,
+                    imageUrl = target?.let { state.imageFor(it) },
+                )
+            }
             val handoffPane: @Composable (Modifier, () -> Unit) -> Unit = { paneModifier, onClose ->
-                val h = handoff
-                if (h != null && handoffBot != null) {
+                val view = handoff
+                if (view != null) {
+                    val h = view.selected
                     val target = state.profiles.firstOrNull { it.name.equals(h.target, ignoreCase = true) }
                     HandoffPane(
-                        state = h,
-                        bot = handoffBot,
+                        view = view,
+                        botFor = handoffBot,
+                        onSelect = handoffViewModel::select,
                         sourceTitle = selected?.effectiveTitle ?: h.source.orEmpty(),
                         onClose = onClose,
                         onTogglePin = handoffViewModel::togglePinned,
@@ -412,7 +415,13 @@ fun BotsScreen(
                                 description =
                                     stringResource(if (showList) R.string.bots_list_hide else R.string.bots_list_show),
                             ) {
-                                listHidden = showList
+                                if (split) {
+                                    // Asking for the list folds the other bot's pane into the strip.
+                                    handoffViewModel.setExpanded(false)
+                                    listHidden = false
+                                } else {
+                                    listHidden = showList
+                                }
                                 BotsLayoutPrefs.setListHidden(context, listHidden)
                             },
                         onChatMessages = onHandoffMessages,
@@ -1218,8 +1227,8 @@ private fun BotsChatPane(
     onBack: (() -> Unit)? = null,
     listToggle: NavIcon.Action? = null,
     onChatMessages: ((String?, List<com.m57.hermescontrol.ui.chat.ChatMessage>) -> Unit)? = null,
-    handoff: HandoffState? = null,
-    handoffBot: HandoffBot? = null,
+    handoff: HandoffView? = null,
+    handoffBot: (String) -> HandoffBot = { error("no hand-off") },
     onHandoffStrip: () -> Unit = {},
 ) {
     val targetHue = profile?.let { hueFor(it) } ?: BotsPalette.Muted
@@ -1288,10 +1297,10 @@ private fun BotsChatPane(
                     )
                 }
                 // The other bot's progress, under the chat's top bar; a tap opens it in full.
-                if (handoff != null && handoffBot != null) {
+                if (handoff != null) {
                     HandoffStrip(
-                        state = handoff,
-                        bot = handoffBot,
+                        view = handoff,
+                        botFor = handoffBot,
                         onClick = onHandoffStrip,
                         modifier =
                             Modifier

@@ -1909,13 +1909,14 @@
     <string name="handoff_done_button">Done</string>
     <string name="handoff_live">Live</string>
     <string name="handoff_done">Done</string>
-    <string name="handoff_working">%1$s is on it</string>
-    <string name="handoff_finished">%1$s finished</string>
+    <string name="handoff_working">Working: %1$s</string>
+    <string name="handoff_finished">Finished: %1$s</string>
     <string name="handoff_finished_line">Closing shortly</string>
     <string name="handoff_starting">Starting…</string>
     <string name="handoff_step">Running a step</string>
     <string name="handoff_task_from">Task from %1$s · read-only</string>
     <string name="handoff_waiting">Waiting for %1$s to start…</string>
+    <string name="handoff_waiting_board">On the board. Waiting for %1$s to pick it up…</string>
     <string name="handoff_footer">You\'re watching %1$s. %2$s still owns the reply.</string>
     <string name="handoff_open_chat">Open chat</string>
     <string name="handoff_pin">Keep open</string>

@@ -1,10 +1,18 @@
+<!-- Status-bar icon: the Hermes orb (ring with an H), white only as Android requires. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24"
+    android:viewportWidth="60"
+    android:viewportHeight="60"
     android:tint="#FFFFFF">
-  <path
-      android:fillColor="#FFFFFF"
-      android:pathData="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM11,6h2v6h-2V6zM11,14h2v2h-2v-2z"/>
+  <group android:translateX="-24" android:translateY="-24">
+    <path
+        android:pathData="M54,27 A27,27 0 1,1 53.99,27 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,40 h6.5 v10.5 h11 v-10.5 h6.5 v28 h-6.5 v-11.5 h-11 v11.5 h-6.5 z" />
+  </group>
 </vector>

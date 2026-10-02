@@ -75,6 +75,8 @@ data class SessionInfo(
     val status: String? = null,
     val preview: String? = null,
     val started_at: Double? = null,
+    // Epoch seconds the run ended; null while it is still going.
+    val ended_at: Double? = null,
     val source: String? = null,
     val parent_session_id: String? = null,
     val display_name: String? = null,

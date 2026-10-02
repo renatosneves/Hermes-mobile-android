@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,10 +17,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -74,14 +77,17 @@ internal data class HandoffBot(
  */
 @Composable
 internal fun HandoffPane(
-    state: HandoffState,
-    bot: HandoffBot,
+    view: HandoffView,
+    botFor: (String) -> HandoffBot,
+    onSelect: (String) -> Unit,
     sourceTitle: String,
     onClose: () -> Unit,
     onTogglePin: () -> Unit,
     onOpenChat: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
+    val state = view.selected
+    val bot = botFor(state.target)
     Column(modifier = modifier.background(BotsPalette.Rail).testTag("handoff_pane")) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -110,12 +116,12 @@ internal fun HandoffPane(
             HandoffPill(done = state.done)
             IconButton(onClick = onTogglePin, modifier = Modifier.testTag("handoff_pin")) {
                 Icon(
-                    if (state.pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                    if (view.pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
                     contentDescription =
                         stringResource(
-                            if (state.pinned) R.string.handoff_unpin else R.string.handoff_pin,
+                            if (view.pinned) R.string.handoff_unpin else R.string.handoff_pin,
                         ),
-                    tint = if (state.pinned) BotsPalette.You else BotsPalette.Muted,
+                    tint = if (view.pinned) BotsPalette.You else BotsPalette.Muted,
                 )
             }
             IconButton(onClick = onClose, modifier = Modifier.testTag("handoff_close")) {
@@ -126,14 +132,62 @@ internal fun HandoffPane(
                 )
             }
         }
-        CloseCountdown(state)
+        CloseCountdown(view)
+        if (view.items.size > 1) {
+            // Several bots at once (Chief of Staff delegating): one tab each.
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                        .testTag("handoff_tabs"),
+            ) {
+                for (item in view.items) {
+                    val tabBot = botFor(item.target)
+                    val chosen = item.key == state.key
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier =
+                            Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(if (chosen) BotsPalette.Deck2 else BotsPalette.Rail)
+                                .border(1.dp, if (chosen) tabBot.hue else BotsPalette.Line, RoundedCornerShape(50))
+                                .clickable { onSelect(item.key) }
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                    ) {
+                        Box(
+                            Modifier
+                                .size(7.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(if (item.done) BotsPalette.Ok else tabBot.hue),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            tabBot.title,
+                            color = if (chosen) BotsPalette.Fg else BotsPalette.Muted,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+            }
+        }
         val listState = rememberLazyListState()
-        LaunchedEffect(state.messages.size) {
+        LaunchedEffect(state.key, state.messages.size) {
             if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
         }
         if (state.messages.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text(stringResource(R.string.handoff_waiting, bot.title), color = BotsPalette.Muted, fontSize = 13.sp)
+                val waiting =
+                    if (state.kind == HandoffKind.BOARD) R.string.handoff_waiting_board else R.string.handoff_waiting
+                Text(
+                    stringResource(waiting, bot.title),
+                    color = BotsPalette.Muted,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(horizontal = 24.dp),
+                )
             }
         } else {
             LazyColumn(
@@ -206,9 +260,9 @@ internal fun HandoffPane(
 
 /** A thin bar that drains while a finished hand-off waits to close. */
 @Composable
-private fun CloseCountdown(state: HandoffState) {
-    val counting = state.settled && !state.pinned
-    val progress = remember(state.key) { Animatable(0f) }
+private fun CloseCountdown(view: HandoffView) {
+    val counting = view.settled && !view.pinned
+    val progress = remember(view.key) { Animatable(0f) }
     LaunchedEffect(counting) {
         if (counting) {
             progress.snapTo(1f)
@@ -241,15 +295,22 @@ private fun HandoffPill(done: Boolean) {
 /** The slim line above the chat on the cover screen, or when the side pane is closed. */
 @Composable
 internal fun HandoffStrip(
-    state: HandoffState,
-    bot: HandoffBot,
+    view: HandoffView,
+    botFor: (String) -> HandoffBot,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val state = view.selected
+    val bot = botFor(state.target)
+    val names =
+        view.items
+            .map { botFor(it.target).title }
+            .distinct()
+            .joinToString(", ")
     val last = state.messages.lastOrNull { it.role != MessageRole.USER }
     val line =
         when {
-            state.done -> {
+            view.done -> {
                 stringResource(R.string.handoff_finished_line)
             }
 
@@ -284,14 +345,14 @@ internal fun HandoffStrip(
             initials = bot.initials,
             hue = bot.hue,
             size = 26.dp,
-            working = !state.done,
+            working = !view.done,
             shapeKey = bot.shapeKey,
             imageUrl = bot.imageUrl,
         )
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                stringResource(if (state.done) R.string.handoff_finished else R.string.handoff_working, bot.title),
+                stringResource(if (view.done) R.string.handoff_finished else R.string.handoff_working, names),
                 color = BotsPalette.Fg,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
@@ -300,7 +361,7 @@ internal fun HandoffStrip(
             Text(line, color = BotsPalette.Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Spacer(Modifier.width(8.dp))
-        HandoffPill(done = state.done)
+        HandoffPill(done = view.done)
     }
 }
 
