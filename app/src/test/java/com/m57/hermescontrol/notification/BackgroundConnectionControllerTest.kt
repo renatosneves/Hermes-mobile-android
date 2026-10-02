@@ -242,6 +242,36 @@ class BackgroundConnectionControllerTest {
     }
 
     @Test
+    fun testOnReplyCompleted_whenAnotherBotIsStillWorking_keepsService() {
+        var serviceCompleted = false
+        var notifiedState: BackgroundNotificationState? = null
+
+        val snapshot =
+            BackgroundConnectionSnapshot(
+                appInForeground = false,
+                isDeparting = false,
+                keepConnectedOptIn = false,
+                pendingReply = true,
+                isEligibleForConnection = true,
+                status = ConnectionStatus.CONNECTED,
+                isAutoReconnect = true,
+                hasActiveNetwork = true,
+            )
+
+        val controller =
+            BackgroundConnectionController(
+                snapshotProvider = { snapshot },
+                requestServiceComplete = { serviceCompleted = true },
+                onNotificationStateChanged = { state -> notifiedState = state },
+            )
+
+        controller.onReplyCompleted(42L, stillPending = true)
+
+        assertFalse(serviceCompleted)
+        assertEquals(BackgroundNotificationState.WaitingForReplies, notifiedState)
+    }
+
+    @Test
     fun testDefaultSnapshot_whenNotReady_returnsIneligibleSnapshotWithoutReadingServerStore() {
         mockkObject(AuthManager)
         mockkObject(ChatNotificationService)

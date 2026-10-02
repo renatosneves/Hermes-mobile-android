@@ -22,6 +22,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -1244,6 +1245,121 @@ class HermesWsClientTest {
         }
         assertFalse(HermesWsClient.isConnected)
         assertEquals("stored-session", receivedEvent.storedSessionId)
+    }
+
+    @Test
+    fun testOneBotCompletingInBackgroundKeepsAnotherBotsTurnConnected() {
+        lateinit var serverSocket: WebSocket
+        val connectedLatch = CountDownLatch(1)
+        val ackLatch = CountDownLatch(2)
+        mockWebServer.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onOpen(
+                        webSocket: WebSocket,
+                        response: Response,
+                    ) {
+                        serverSocket = webSocket
+                        connectedLatch.countDown()
+                    }
+
+                    override fun onMessage(
+                        webSocket: WebSocket,
+                        text: String,
+                    ) {
+                        if (!text.contains(WsMethods.PROMPT_SUBMIT)) return
+                        val id = Regex(""""id":"([^"]+)"""").find(text)?.groupValues?.get(1) ?: return
+                        webSocket.send("""{"jsonrpc":"2.0","id":"$id","result":{"status":"accepted"}}""")
+                        ackLatch.countDown()
+                    }
+                },
+            ),
+        )
+        HermesWsClient.connect()
+        assertTrue(connectedLatch.await(5, TimeUnit.SECONDS))
+        HermesWsClient.sendMessage("cos", "long task")
+        HermesWsClient.sendMessage("ledger", "quick task")
+        assertTrue(ackLatch.await(5, TimeUnit.SECONDS))
+        HermesWsClient.setAppForeground(false)
+
+        fun complete(sessionId: String) =
+            """{"jsonrpc":"2.0","method":"event","params":{"type":"message.complete",""" +
+                """"payload":{"text":"done","session_id":"$sessionId"}}}"""
+
+        runBlocking {
+            withTimeout(5000) {
+                launch { serverSocket.send(complete("ledger")) }
+                HermesWsClient.events.first { it is WsEvent.MessageComplete && it.sessionId == "ledger" }
+            }
+        }
+        Thread.sleep(300)
+        assertTrue(HermesWsClient.isConnected)
+        assertTrue(HermesWsClient.pendingReply)
+
+        serverSocket.send(complete("cos"))
+        runBlocking {
+            withTimeout(5000) {
+                HermesWsClient.connectionStatus.first { it == ConnectionStatus.DISCONNECTED }
+            }
+        }
+        assertFalse(HermesWsClient.pendingReply)
+    }
+
+    @Test
+    fun testReplaySendsEverySessionsCatchUpBeforeAwaitingAnswers() {
+        val pendingIds = Collections.synchronizedList(mutableListOf<String>())
+        val allRequested = CountDownLatch(3)
+        val receivedTokens = Collections.synchronizedList(mutableListOf<String>())
+        val collectorJob =
+            CoroutineScope(Dispatchers.IO).launch {
+                HermesWsClient.events.collect { event ->
+                    if (event is WsEvent.MessageToken) receivedTokens.add(event.token)
+                }
+            }
+        mockWebServer.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onMessage(
+                        webSocket: WebSocket,
+                        text: String,
+                    ) {
+                        if (!text.contains(WsMethods.SESSION_EVENTS_SINCE)) return
+                        val id = Regex(""""id":"([^"]+)"""").find(text)?.groupValues?.get(1) ?: return
+                        val sid = Regex(""""session_id":"([^"]+)"""").find(text)?.groupValues?.get(1) ?: return
+                        pendingIds.add("$id:$sid")
+                        allRequested.countDown()
+                        // Answer only once every session has asked: a client that awaited
+                        // each round trip before sending the next would stall here.
+                        if (allRequested.count == 0L) {
+                            for (entry in pendingIds.toList()) {
+                                val (rid, session) = entry.split(":")
+                                webSocket.send(
+                                    """{"jsonrpc":"2.0","id":"$rid","result":{"epoch":"ep1","events":""" +
+                                        """[{"type":"message.token","session_id":"$session","seq":6,""" +
+                                        """"payload":{"text":"$session"}}]}}""",
+                                )
+                            }
+                        }
+                    }
+                },
+            ),
+        )
+
+        HermesWsClient.setSeqWatermark("s1", 5)
+        HermesWsClient.setSeqWatermark("s2", 5)
+        HermesWsClient.setSeqWatermark("s3", 5)
+        HermesWsClient.connect()
+
+        assertTrue(allRequested.await(5, TimeUnit.SECONDS))
+        runBlocking {
+            withTimeout(5000) {
+                while (receivedTokens.size < 3) delay(20)
+            }
+        }
+        assertEquals(setOf("s1", "s2", "s3"), receivedTokens.toSet())
+        assertEquals(6, HermesWsClient.getSeqWatermarks()["s1"])
+        assertEquals(6, HermesWsClient.getSeqWatermarks()["s3"])
+        collectorJob.cancel()
     }
 
     @Test

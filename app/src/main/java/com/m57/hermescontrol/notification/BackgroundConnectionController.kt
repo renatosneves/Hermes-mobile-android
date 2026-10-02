@@ -84,8 +84,16 @@ class BackgroundConnectionController(
         requestServiceStop()
     }
 
-    fun onReplyCompleted(generation: Long) {
-        val snapshot = snapshotProvider(false).copy(pendingReply = false)
+    /**
+     * A reply finished in the background. [stillPending] is true when another
+     * bot's turn is still running: the service then stays up for it instead of
+     * being retired by the first completion.
+     */
+    fun onReplyCompleted(
+        generation: Long,
+        stillPending: Boolean = false,
+    ) {
+        val snapshot = snapshotProvider(false).copy(pendingReply = stillPending)
         val decision = BackgroundConnectionPolicy.evaluate(snapshot)
 
         if (decision.shouldHoldService) {

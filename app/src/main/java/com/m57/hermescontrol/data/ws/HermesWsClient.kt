@@ -31,6 +31,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -292,11 +293,14 @@ object HermesWsClient {
     // notification foreground service: it only runs while a reply is
     // actually pending, instead of for the whole time the app is
     // backgrounded (issue #794).
-    @Volatile
-    var pendingReply: Boolean = false
-        private set
+    private val replyTracker = ReplyPendingTracker()
 
-    private val pendingPromptSubmits = ConcurrentHashMap.newKeySet<String>()
+    /** True while any agent turn is in flight, on any session. */
+    val pendingReply: Boolean
+        get() = replyTracker.isPending
+
+    /** True while a turn other than [sessionId]'s is still in flight. */
+    fun isReplyPendingExcept(sessionId: String?): Boolean = replyTracker.isPendingExcept(sessionId)
 
     // ── Credential warning (issue #534) ─────────────────────────────────
     // Backend surfaces `credential_warning` in `gateway.ready` / `session.info`
@@ -335,17 +339,28 @@ object HermesWsClient {
         wsScope.launch {
             events.collect { event ->
                 when (event) {
-                    is WsEvent.MessageStart,
-                    is WsEvent.MessageToken,
-                    is WsEvent.ThinkingDelta,
-                    is WsEvent.ReasoningDelta,
-                    is WsEvent.ToolStart,
-                    -> {
-                        pendingReply = true
+                    is WsEvent.MessageStart -> {
+                        replyTracker.onTurnActivity(event.sessionId)
+                    }
+
+                    is WsEvent.MessageToken -> {
+                        replyTracker.onTurnActivity(event.sessionId)
+                    }
+
+                    is WsEvent.ThinkingDelta -> {
+                        replyTracker.onTurnActivity(event.sessionId)
+                    }
+
+                    is WsEvent.ReasoningDelta -> {
+                        replyTracker.onTurnActivity(event.sessionId)
+                    }
+
+                    is WsEvent.ToolStart -> {
+                        replyTracker.onTurnActivity(event.sessionId)
                     }
 
                     is WsEvent.MessageComplete -> {
-                        pendingReply = false
+                        replyTracker.onTurnComplete(event.sessionId)
                         disconnectIfIdleInBackground()
                     }
 
@@ -748,8 +763,7 @@ object HermesWsClient {
                 backgroundConnectionLease.set(false)
                 messageQueue.clear()
                 queuedMessagesById.clear()
-                pendingPromptSubmits.clear()
-                pendingReply = false
+                replyTracker.clear()
                 lastSeenSeq.clear()
                 replayHold.clear()
                 replayEpoch = null
@@ -960,8 +974,7 @@ object HermesWsClient {
         var reconnect = false
         synchronized(outboundLock) {
             if (method == WsMethods.PROMPT_SUBMIT) {
-                pendingPromptSubmits.add(id)
-                pendingReply = true
+                replyTracker.onPromptSubmitted(id, params["session_id"] as? String)
             }
             val ws = webSocket
             if (ws != null && connected.get()) {
@@ -1129,15 +1142,27 @@ object HermesWsClient {
 
     private suspend fun fetchReplay(sessionsToReplay: List<String> = lastSeenSeq.keys().toList()) {
         try {
-            for (sid in sessionsToReplay) {
-                val lastSeen = lastSeenSeq[sid] ?: continue
-                try {
-                    val deferred =
+            // Send every session's catch-up request up front and apply the answers
+            // in order. Awaiting each round trip before sending the next made
+            // catch-up after unlocking the phone grow linearly with open bots.
+            val pendingReplies =
+                sessionsToReplay.mapNotNull { sid ->
+                    val lastSeen = lastSeenSeq[sid] ?: return@mapNotNull null
+                    sid to
                         request(
                             method = WsMethods.SESSION_EVENTS_SINCE,
                             params = mapOf("session_id" to sid, "last_seen" to lastSeen),
                             timeoutMs = 10_000L,
                         )
+                }
+            for ((sid, deferred) in pendingReplies) {
+                // An earlier session's epoch change clears every watermark; such
+                // sessions are skipped, exactly as when requests were sent one by one.
+                if (!lastSeenSeq.containsKey(sid)) {
+                    deferred.cancel()
+                    continue
+                }
+                try {
                     val result = deferred.await()
 
                     @Suppress("UNCHECKED_CAST")
@@ -1421,17 +1446,21 @@ object HermesWsClient {
                     // that re-deserialize the result into typed data classes.
                     val rpcId = rpc.id
                     if (rpcId != null && rpc.error == null && rpc.result != null) {
-                        synchronized(outboundLock) { pendingPromptSubmits.remove(rpcId) }
+                        replyTracker.onPromptAccepted(rpcId)
                         removeQueuedMessage(rpcId)
                         resolvePending(rpcId, rpc.result, null)
                     }
 
                     // Resume/replay responses carry still-open server requests
                     // separately from the event ring. Re-deliver them through the
-                    // same generic path before exposing the RPC result.
-                    @Suppress("UNCHECKED_CAST")
+                    // same generic path before exposing the RPC result. Only the
+                    // `open_requests` entries are converted: converting the whole
+                    // result here (a full transcript on session.resume) doubled the
+                    // parse work on the socket reader thread, since EventParser
+                    // converts it again below.
                     val openRequests =
-                        (rpc.result?.toAny() as? Map<*, *>)?.get("open_requests") as? List<Map<*, *>>
+                        ((rpc.result as? JsonObject)?.get("open_requests") as? JsonArray)
+                            ?.mapNotNull { it.toAny() as? Map<*, *> }
                     openRequests?.forEach { openRequest ->
                         val openId = openRequest["id"] as? String ?: return@forEach
                         val method = openRequest["method"] as? String ?: return@forEach
@@ -1486,20 +1515,13 @@ object HermesWsClient {
             if (consumeCapabilityResponse(event)) return
             when (event) {
                 is WsEvent.RpcResult -> {
-                    synchronized(outboundLock) { pendingPromptSubmits.remove(event.id) }
+                    replyTracker.onPromptAccepted(event.id)
                     removeQueuedMessage(event.id)
                     resolvePending(event.id, event.result, null)
                 }
 
                 is WsEvent.RpcError -> {
-                    synchronized(outboundLock) {
-                        if (pendingPromptSubmits.remove(event.id) &&
-                            pendingPromptSubmits.isEmpty()
-                        ) {
-                            pendingReply = false
-                            disconnectIfIdleInBackground()
-                        }
-                    }
+                    if (replyTracker.onPromptRejected(event.id)) disconnectIfIdleInBackground()
                     if (pendingCalls[event.id]?.suppressErrorEvent == true) {
                         // Opt-in suppression: the caller already handles the
                         // failure through the CompletableDeferred, so the event
@@ -1547,26 +1569,10 @@ object HermesWsClient {
             code: Int,
             reason: String,
         ) {
-            synchronized(outboundLock) {
-                if (!isCurrent()) return
-                connectionGeneration.incrementAndGet()
-                closingSocket = null
-                outboundDrainJob?.cancel()
-                outboundDrainJob = null
-                if (HermesWsClient.webSocket === webSocket) HermesWsClient.webSocket = null
-                // Do NOT log [reason] — it may carry server-side context. The
-                // reason is still inspected internally to detect auth failures.
+            // Do NOT log [reason] — it may carry server-side context. The
+            // reason is still inspected internally to detect auth failures.
+            onSocketEnded(webSocket, authFailure = isTerminalAuthClose(code, reason)) {
                 Log.i(TAG, "WebSocket closed: $code")
-                connected.set(false)
-                ActiveSessionHolder.clear()
-                stopHealthTracking()
-                capabilityRequestIds.clear()
-                if (isTerminalAuthClose(code, reason)) {
-                    _connectionStatus.value = ConnectionStatus.AUTH_EXPIRED
-                } else if (_connectionStatus.value != ConnectionStatus.AUTH_EXPIRED) {
-                    _connectionStatus.value = ConnectionStatus.RECONNECTING
-                    scheduleReconnect()
-                }
             }
         }
 
@@ -1575,6 +1581,32 @@ object HermesWsClient {
             t: Throwable,
             response: Response?,
         ) {
+            val code = response?.code ?: 0
+            val message = t.message
+            val authFailure =
+                code == 401 || code == 4401 || code == 4403 ||
+                    message?.contains("401") == true ||
+                    message?.contains("4401") == true ||
+                    message?.contains("4403") == true ||
+                    message?.contains("unauthorized", ignoreCase = true) == true
+            // Log the exception class only — [Throwable.message] can leak URLs
+            // or headers. The message is still inspected internally for auth
+            // detection.
+            onSocketEnded(webSocket, authFailure) {
+                Log.e(TAG, "WebSocket failure: ${t.javaClass.simpleName}", t)
+            }
+        }
+
+        /**
+         * Shared teardown for a socket that closed or failed: retire it, then
+         * either stop on an auth failure or schedule a reconnect. [log] runs
+         * only when this listener still owns the current connection.
+         */
+        private inline fun onSocketEnded(
+            webSocket: WebSocket,
+            authFailure: Boolean,
+            log: () -> Unit,
+        ) {
             synchronized(outboundLock) {
                 if (!isCurrent()) return
                 connectionGeneration.incrementAndGet()
@@ -1582,21 +1614,12 @@ object HermesWsClient {
                 outboundDrainJob?.cancel()
                 outboundDrainJob = null
                 if (HermesWsClient.webSocket === webSocket) HermesWsClient.webSocket = null
-                // Log the exception class only — [Throwable.message] can leak URLs
-                // or headers. The message is still inspected internally for auth
-                // detection.
-                Log.e(TAG, "WebSocket failure: ${t.javaClass.simpleName}", t)
+                log()
                 connected.set(false)
                 ActiveSessionHolder.clear()
                 stopHealthTracking()
                 capabilityRequestIds.clear()
-                val code = response?.code ?: 0
-                if (code == 401 || code == 4401 || code == 4403 ||
-                    t.message?.contains("401") == true ||
-                    t.message?.contains("4401") == true ||
-                    t.message?.contains("4403") == true ||
-                    t.message?.contains("unauthorized", ignoreCase = true) == true
-                ) {
+                if (authFailure) {
                     _connectionStatus.value = ConnectionStatus.AUTH_EXPIRED
                 } else if (_connectionStatus.value != ConnectionStatus.AUTH_EXPIRED) {
                     _connectionStatus.value = ConnectionStatus.RECONNECTING
