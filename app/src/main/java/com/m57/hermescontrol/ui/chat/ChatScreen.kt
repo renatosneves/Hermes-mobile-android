@@ -176,6 +176,8 @@ fun ChatScreen(
     titleOverride: (@Composable () -> Unit)? = null,
     /** Shows a back arrow instead of the menu, e.g. a bot chat opened from the Bots list on a phone. */
     onBack: (() -> Unit)? = null,
+    /** Replaces the menu button, e.g. showing or hiding the bot list beside an embedded chat. */
+    navigationAction: NavIcon.Action? = null,
     /** The bot a live voice call from this chat speaks as, and its picture (the Bots home sets these). */
     voiceTitle: String? = null,
     voiceImageUrl: String? = null,
@@ -569,7 +571,7 @@ fun ChatScreen(
                 }
             }
         },
-        navigationIcon = onBack?.let { NavIcon.Back(it) } ?: onOpenDrawer?.let { NavIcon.Menu(it) },
+        navigationIcon = onBack?.let { NavIcon.Back(it) } ?: navigationAction ?: onOpenDrawer?.let { NavIcon.Menu(it) },
         snackbarHost = {
             SnackbarHost(snackbarHostState) { data ->
                 val statusColors = LocalHermesStatusColors.current

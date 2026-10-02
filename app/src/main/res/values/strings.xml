@@ -1897,6 +1897,8 @@
     <string name="freeze_report_share">Share report</string>
     <string name="freeze_report_dismiss">Not now</string>
     <string name="chat_report_send">Send chat report</string>
+    <string name="bots_list_hide">Hide bot list</string>
+    <string name="bots_list_show">Show bot list</string>
     <string name="voice_live_muted">Muted</string>
     <string name="share_pick_bot">Share to a bot</string>
     <string name="share_pick_bot_hint">Tap the bot that should get it. Nothing is sent until you press send.</string>

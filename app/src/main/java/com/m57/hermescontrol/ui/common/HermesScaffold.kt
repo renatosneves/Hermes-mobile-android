@@ -51,6 +51,13 @@ sealed interface NavIcon {
     data class Back(
         val onBack: () -> Unit,
     ) : NavIcon
+
+    /** Any other single action in the navigation slot, e.g. showing or hiding a side list. */
+    data class Action(
+        val icon: androidx.compose.ui.graphics.vector.ImageVector,
+        val description: String,
+        val onClick: () -> Unit,
+    ) : NavIcon
 }
 
 /**
@@ -174,6 +181,16 @@ fun HermesScaffold(
                                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                     contentDescription = stringResource(R.string.content_desc_back),
                                     modifier = Modifier.testTag("back_button"),
+                                )
+                            }
+                        }
+
+                        is NavIcon.Action -> {
+                            IconButton(onClick = icon.onClick) {
+                                Icon(
+                                    imageVector = icon.icon,
+                                    contentDescription = icon.description,
+                                    modifier = Modifier.testTag("nav_action_button"),
                                 )
                             }
                         }

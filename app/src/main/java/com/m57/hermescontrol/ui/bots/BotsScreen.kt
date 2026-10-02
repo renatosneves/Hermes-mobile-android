@@ -8,9 +8,11 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -37,6 +39,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuOpen
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Close
@@ -111,6 +114,7 @@ import com.m57.hermescontrol.ui.chat.ChatScreen
 import com.m57.hermescontrol.ui.chat.VoiceLiveCalls
 import com.m57.hermescontrol.ui.common.DisableDrawerGestures
 import com.m57.hermescontrol.ui.common.LocalDrawerGestureController
+import com.m57.hermescontrol.ui.common.NavIcon
 import com.m57.hermescontrol.ui.common.ToastEffect
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -269,9 +273,21 @@ fun BotsScreen(
             val chatSessionId = openSessionId ?: selected?.canonicalSessionId()
             if (twoPane) {
                 val railWidth = (maxWidth * 0.42f).coerceIn(300.dp, 460.dp)
+                // The bot list can be folded away so the chat takes the whole screen; the choice
+                // is kept between launches. With no bot open the list always shows.
+                var listHidden by remember { mutableStateOf(BotsLayoutPrefs.listHidden(context)) }
+                val showList = !listHidden || selected == null
                 Row(modifier = Modifier.fillMaxSize()) {
-                    rail(Modifier.width(railWidth).fillMaxHeight(), selectedName)
-                    Hinge()
+                    AnimatedVisibility(
+                        visible = showList,
+                        enter = expandHorizontally() + fadeIn(),
+                        exit = shrinkHorizontally() + fadeOut(),
+                    ) {
+                        Row {
+                            rail(Modifier.width(railWidth).fillMaxHeight(), selectedName)
+                            Hinge()
+                        }
+                    }
                     // The open conversation counts as read, including replies arriving while it's open.
                     LaunchedEffect(selected?.name, selected?.let { BotsPresentation.messageCount(it) }) {
                         selected?.let(viewModel::markSeen)
@@ -285,6 +301,15 @@ fun BotsScreen(
                         now = now,
                         working = selected?.let { state.isWorking(it, now) } == true,
                         baseScheme = baseScheme,
+                        listToggle =
+                            NavIcon.Action(
+                                icon = if (showList) Icons.AutoMirrored.Filled.MenuOpen else Icons.Filled.Menu,
+                                description =
+                                    stringResource(if (showList) R.string.bots_list_hide else R.string.bots_list_show),
+                            ) {
+                                listHidden = showList
+                                BotsLayoutPrefs.setListHidden(context, listHidden)
+                            },
                     )
                 }
             } else if (phoneChatOpen && selected != null) {
@@ -1044,6 +1069,7 @@ private fun BotsChatPane(
     working: Boolean,
     baseScheme: androidx.compose.material3.ColorScheme,
     onBack: (() -> Unit)? = null,
+    listToggle: NavIcon.Action? = null,
 ) {
     val targetHue = profile?.let { hueFor(it) } ?: BotsPalette.Muted
     val hue by animateColorAsState(targetHue, animationSpec = tween(600), label = "pane-hue")
@@ -1084,6 +1110,7 @@ private fun BotsChatPane(
                         onOpenDrawer = null,
                         sessionId = sessionId,
                         onBack = onBack,
+                        navigationAction = listToggle,
                         voiceTitle = profile.effectiveTitle,
                         voiceImageUrl = imageUrl,
                         titleOverride = {
@@ -1297,5 +1324,27 @@ private fun BotsDialogs(
                 viewModel.createGroupChat(groupName, botNames) { onDismissCreateGroup() }
             },
         )
+    }
+}
+
+/** Layout choices on the Bots home that should outlast the app being closed. */
+private object BotsLayoutPrefs {
+    private const val PREFS = "bots_layout"
+    private const val KEY_LIST_HIDDEN = "list_hidden"
+
+    fun listHidden(context: android.content.Context): Boolean =
+        context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).getBoolean(KEY_LIST_HIDDEN, false)
+
+    fun setListHidden(
+        context: android.content.Context,
+        hidden: Boolean,
+    ) {
+        context
+            .getSharedPreferences(
+                PREFS,
+                android.content.Context.MODE_PRIVATE,
+            ).edit()
+            .putBoolean(KEY_LIST_HIDDEN, hidden)
+            .apply()
     }
 }
