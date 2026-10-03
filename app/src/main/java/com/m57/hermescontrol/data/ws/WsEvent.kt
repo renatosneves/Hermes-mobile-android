@@ -205,6 +205,7 @@ sealed class WsEvent {
     data class StatusUpdate(
         val status: String?,
         val data: Map<String, Any?>?,
+        val sessionId: String? = null,
     ) : WsEvent()
 
     data class SessionUpdated(
@@ -443,6 +444,18 @@ sealed class WsEvent {
      */
     data class ReactionEvent(
         val kind: String = "",
+    ) : WsEvent()
+
+    /**
+     * `message.reaction`: the agent (or another client) set/cleared a tapback on a stored
+     * message. [reactions] is the row's full list after the write; [rowId] is the gateway
+     * SQLite row id, matched against `ChatMessage.serverRowId`.
+     */
+    data class MessageReactionUpdated(
+        val rowId: Long,
+        val reactions: List<com.m57.hermescontrol.data.model.MessageReaction>,
+        val role: String,
+        val sessionId: String?,
     ) : WsEvent()
 
     // ── Replay resync (internal) ──────────────────────────────────────────

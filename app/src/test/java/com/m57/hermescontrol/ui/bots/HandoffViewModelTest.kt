@@ -13,7 +13,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -58,11 +57,15 @@ class HandoffViewModelTest {
     }
 
     @Test
-    fun `the step finishing marks it done, and closing keeps it closed`() {
+    fun `the step finishing is noted, and closing keeps it closed`() {
         val vm = HandoffViewModel()
         vm.observe("ask-chat", "ask", listOf(step()))
         vm.observe("ask-chat", "ask", listOf(step(ToolStatus.COMPLETED)))
-        assertTrue(vm.state.value!!.done)
+        // The run itself is over only once its session ends; the step is just the trigger.
+        assertNotNull(
+            vm.state.value!!
+                .selected.stepDoneAtMs,
+        )
 
         vm.close()
         vm.observe("ask-chat", "ask", listOf(step()))

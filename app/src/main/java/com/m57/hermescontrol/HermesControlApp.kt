@@ -17,6 +17,7 @@ import com.m57.hermescontrol.diagnostics.ChatTrace
 import com.m57.hermescontrol.diagnostics.FreezeReporter
 import com.m57.hermescontrol.notification.TurnCorrelationTracker
 import com.m57.hermescontrol.ui.analytics.AnalyticsPreloader
+import com.m57.hermescontrol.ui.chat.cleanStalePastedImages
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -32,6 +33,10 @@ class HermesControlApp :
         super.onCreate()
         FreezeReporter.init(this)
         ChatTrace.init(this)
+        val startupTimeMs = System.currentTimeMillis()
+        appScope.launch(Dispatchers.IO) {
+            cleanStalePastedImages(cacheDir, startupTimeMs)
+        }
         AuthManager.init(this)
         NetworkMonitor.init(this)
         SessionListCacheStore.init(this)

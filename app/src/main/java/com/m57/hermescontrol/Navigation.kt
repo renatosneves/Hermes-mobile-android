@@ -227,14 +227,21 @@ fun MainNavigation(sessionId: String? = null) {
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
     val backToastText = stringResource(R.string.press_back_again_to_exit)
 
-    // Double-back to exit on the root Bots home
+    // Double-back to exit on the root Bots home. A chat opened from a list (History) returns to
+    // that list first (Telegram chat-list parity).
     BackHandler(enabled = currentScreen == NavigationController.HomeScreen && backStack.size == 1) {
-        val now = System.currentTimeMillis()
-        if (now - lastBackPressTime < 2000L) {
-            (context as? Activity)?.finish()
+        val pendingReturn = NavigationController.chatReturnScreen
+        if (pendingReturn != null && currentScreen == ChatScreen) {
+            NavigationController.consumeChatReturnScreen()
+            NavigationController.navigateTo(pendingReturn)
         } else {
-            lastBackPressTime = now
-            Toast.makeText(context, backToastText, Toast.LENGTH_SHORT).show()
+            val now = System.currentTimeMillis()
+            if (now - lastBackPressTime < 2000L) {
+                (context as? Activity)?.finish()
+            } else {
+                lastBackPressTime = now
+                Toast.makeText(context, backToastText, Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

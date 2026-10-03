@@ -35,12 +35,14 @@ import com.m57.hermescontrol.theme.LocalChatFontScale
 import com.m57.hermescontrol.ui.chat.ChatMessage
 import com.m57.hermescontrol.ui.chat.ChatSearchState
 import com.m57.hermescontrol.ui.chat.ImageViewerModel
+import com.m57.hermescontrol.ui.chat.PendingSendState
 import com.m57.hermescontrol.ui.chat.SearchTarget
 import com.m57.hermescontrol.ui.chat.ToolCallDivider
 import com.m57.hermescontrol.ui.chat.UserBubble
 import com.m57.hermescontrol.ui.chat.components.ChatHistoryPrefetch
 import com.m57.hermescontrol.ui.chat.components.ChatScrollController
 import com.m57.hermescontrol.ui.chat.components.ClarifyBubble
+import com.m57.hermescontrol.ui.chat.components.MessageReactionChips
 import com.m57.hermescontrol.ui.chat.components.ReasoningCard
 import com.m57.hermescontrol.ui.chat.components.VaultCodeCard
 import com.m57.hermescontrol.ui.chat.components.VaultSaveLoginCard
@@ -55,6 +57,23 @@ private object FullBleedContentType {
     const val TOOL: String = "tool"
     const val SYSTEM_EVENT: String = "system_event"
 }
+
+/** Only show the placeholder when there are no messages or renderable live tail items. */
+internal fun shouldShowChatEmptyState(
+    transcript: TranscriptUiState,
+    hasReplyError: Boolean,
+): Boolean =
+    transcript.messages.isEmpty() &&
+        transcript.streamingState.streamingMessage == null &&
+        !transcript.isLoading &&
+        !transcript.isAgentTyping &&
+        !hasReplyError &&
+        transcript.clarifyRequest == null &&
+        transcript.vaultUnlockPrompt == null &&
+        transcript.vaultSaveLoginPrompt == null &&
+        transcript.vaultCodePrompt == null &&
+        !transcript.isCompressing &&
+        transcript.compressionStatus == null
 
 /**
  * The chat message list for FULL-BLEED style (issue #866) — the single chat
@@ -103,7 +122,7 @@ fun FullBleedChatList(
     val isCompressing = transcript.isCompressing
     val compressionStatus = transcript.compressionStatus
     val speakingMessageId = transcript.speakingMessageId
-    if (messages.isEmpty() && !isLoading && !isAgentTyping && replyErrorContent == null) {
+    if (shouldShowChatEmptyState(transcript, hasReplyError = replyErrorContent != null)) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
@@ -310,7 +329,17 @@ fun FullBleedChatList(
                                             onImageClick = actions.onImageClick,
                                             messageStatsEnabled = messageStatsEnabled,
                                             showUserMessageTokens = showUserMessageTokens,
+                                            pendingSendState = transcript.pendingSendStates[userMessage.id],
                                         )
+                                        if (userMessage.reactions.isNotEmpty()) {
+                                            MessageReactionChips(
+                                                reactions = userMessage.reactions,
+                                                modifier =
+                                                    Modifier
+                                                        .align(Alignment.End)
+                                                        .padding(horizontal = 12.dp),
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -551,6 +580,7 @@ private fun renderUserBubble(
     onImageClick: (ImageViewerModel) -> Unit,
     messageStatsEnabled: Boolean,
     showUserMessageTokens: Boolean,
+    pendingSendState: PendingSendState?,
 ) {
     UserBubble(
         message = message,
@@ -564,5 +594,6 @@ private fun renderUserBubble(
         onImageClick = onImageClick,
         messageStatsEnabled = messageStatsEnabled,
         showUserMessageTokens = showUserMessageTokens,
+        pendingSendState = pendingSendState,
     )
 }

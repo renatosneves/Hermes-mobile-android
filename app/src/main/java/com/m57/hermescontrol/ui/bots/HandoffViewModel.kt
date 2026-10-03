@@ -33,7 +33,10 @@ data class HandoffState(
     val startedAtMs: Long,
     val sessionId: String? = null,
     val messages: List<ChatMessage> = emptyList(),
+    /** The other bot's run is over. */
     val done: Boolean = false,
+    /** The CLI step that started it has finished (the run itself may still be going). */
+    val stepDoneAtMs: Long? = null,
     /** Done and its last messages fetched. */
     val settled: Boolean = false,
 )
@@ -98,11 +101,15 @@ class HandoffViewModel : ViewModel() {
         sessionId: String?,
         self: String?,
         messages: List<ChatMessage>,
+        bots: Set<String> = emptySet(),
     ) {
+        traceToolSteps(messages)
         book.update { b ->
             var items =
                 b.items.map { item ->
-                    if (item.sourceSessionId != sessionId || item.done || item.kind != HandoffKind.CLI) {
+                    if (item.sourceSessionId != sessionId || item.stepDoneAtMs != null ||
+                        item.kind != HandoffKind.CLI
+                    ) {
                         item
                     } else {
                         val step =
@@ -112,8 +119,8 @@ class HandoffViewModel : ViewModel() {
                                 }
                         // A step that is gone may just be the chat reloading; the run's end settles it then.
                         if (step != null && step.toolStatus != ToolStatus.RUNNING) {
-                            ChatTrace.note("hand-off to ${item.target} finished")
-                            item.copy(done = true)
+                            ChatTrace.note("hand-off step to ${item.target} finished")
+                            item.copy(stepDoneAtMs = System.currentTimeMillis())
                         } else {
                             item
                         }
@@ -121,7 +128,7 @@ class HandoffViewModel : ViewModel() {
                 }
             if (sessionId != null) {
                 val known = finished + items.map { it.key }
-                val found = HandoffDetector.detect(messages, self, known)
+                val found = HandoffDetector.detect(messages, self, known, bots = bots)
                 for (h in found) {
                     ChatTrace.note("hand-off to ${h.target} started (${h.kind.name.lowercase()})")
                     items = items +
@@ -177,21 +184,40 @@ class HandoffViewModel : ViewModel() {
             }
         val sessionId = item.sessionId ?: session?.id
         val ended = session?.ended_at != null
-        val messages = sessionId?.let { fetchMessages(item.target, it) }
-        val waitedTooLong =
+        // A run that has gone quiet for a while is over even if it never stamped its end.
+        val idle =
+            session?.let { (it.last_active ?: it.started_at ?: 0.0) * 1000 < now - IDLE_MS } == true &&
+                now - item.startedAtMs > IDLE_MS
+        val stepDoneAt = item.stepDoneAtMs
+        val giveUpMs = if (item.kind == HandoffKind.BOARD) BOARD_GIVE_UP_MS else CLI_GIVE_UP_MS
+        val neverStarted =
             sessionId == null &&
-                now - item.startedAtMs > if (item.kind == HandoffKind.BOARD) BOARD_GIVE_UP_MS else CLI_GIVE_UP_MS
+                (now - item.startedAtMs > giveUpMs || (stepDoneAt != null && now - stepDoneAt > CLI_GIVE_UP_MS))
+        // Decided before fetching, so the fetch below is guaranteed to hold the run's last steps.
+        val doneNow = item.done || ended || idle
+        val messages = sessionId?.let { fetchMessages(item.target, it) }
         update(item.key) { current ->
-            val done = current.done || ended || waitedTooLong
             current.copy(
                 sessionId = sessionId,
                 messages = messages ?: current.messages,
-                done = done,
-                // Settled only by a fetch that began after the end was known, so nothing is missing.
-                settled = ((item.done || ended) && messages != null) || waitedTooLong,
+                done = doneNow || neverStarted,
+                settled = (doneNow && messages != null) || neverStarted,
             )
         }
     }
+
+    /** Notes each new tool step's name and first command word, to trace hand-offs not yet spotted. */
+    private fun traceToolSteps(messages: List<ChatMessage>) {
+        for (message in messages.asReversed().take(TRACE_TAIL)) {
+            if (message.role != MessageRole.TOOL || message.toolStatus != ToolStatus.RUNNING) continue
+            if (message.isHistoricalCache || !traced.add(message.id)) continue
+            val first = COMMAND_HEAD.find(message.content)?.groupValues?.get(1)
+            ChatTrace.note("tool step ${message.toolName ?: "?"}${first?.let { ": $it" }.orEmpty()}")
+        }
+        if (traced.size > 500) traced.clear()
+    }
+
+    private val traced = mutableSetOf<String>()
 
     private fun update(
         key: String,
@@ -272,5 +298,10 @@ class HandoffViewModel : ViewModel() {
         /** The board can queue a task behind others before its bot starts. */
         const val BOARD_GIVE_UP_MS = 10 * 60_000L
         const val PAGE = 80
+        const val IDLE_MS = 3 * 60_000L
+        const val TRACE_TAIL = 10
+
+        /** The program a terminal step runs, never its arguments. */
+        val COMMAND_HEAD = Regex(""""command"\s*:\s*"([A-Za-z0-9_./-]{1,40})""")
     }
 }

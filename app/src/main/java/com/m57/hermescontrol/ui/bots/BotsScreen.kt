@@ -357,10 +357,11 @@ fun BotsScreen(
                     )
                 }
             }
+            val botNames = remember(state.profiles) { state.profiles.map { it.name }.toSet() }
             val onHandoffMessages: (String?, List<com.m57.hermescontrol.ui.chat.ChatMessage>) -> Unit =
                 { sessionId, messages ->
                     if (handoffMode != HandoffMode.OFF) {
-                        handoffViewModel.observe(sessionId, selected?.name, messages)
+                        handoffViewModel.observe(sessionId, selected?.name, messages, botNames)
                     }
                 }
             if (handoffSheetOpen && handoff != null) {

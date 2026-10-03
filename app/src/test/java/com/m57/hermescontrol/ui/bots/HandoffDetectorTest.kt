@@ -97,6 +97,17 @@ class HandoffDetectorTest {
     }
 
     @Test
+    fun `a routing step that names another bot counts, given the roster`() {
+        val bots = setOf("orchestrator", "link", "ledger")
+        val route = tool("jev-route link \"Draft the LinkedIn post\"")
+        assertEquals("link", HandoffDetector.namedTargetOf(route, bots, self = "orchestrator"))
+        assertNull(HandoffDetector.namedTargetOf(tool("cat notes/link.md"), bots, self = "orchestrator"))
+        assertNull(HandoffDetector.namedTargetOf(route, emptySet(), self = "orchestrator"))
+        val found = HandoffDetector.detect(listOf(route), "orchestrator", emptySet(), now, bots)
+        assertEquals(listOf("link" to HandoffKind.CLI), found.map { it.target to it.kind })
+    }
+
+    @Test
     fun `picks the run that started after the step, from the expected source`() {
         val start = now
         val sessions =

@@ -40,6 +40,13 @@ internal object HandoffDetector {
 
     private const val BOARD_TOOL = "kanban_create"
 
+    // Words that mark a step as passing work on (a routing script, a send/delegate tool).
+    private val DELEGATION_HINT =
+        Regex(
+            """(?i)\b(?:hermes|jev[-_ ]?route|route|delegat\w*|hand[-_ ]?off|send[-_]?to|ask[-_]?bot|message[-_]?bot)\b""",
+        )
+    private val WORD = Regex("""[A-Za-z0-9_.-]+""")
+
     /** Steps older than this are leftovers, not live hand-offs. */
     private const val STALE_MS = 30 * 60_000L
 
@@ -64,6 +71,27 @@ internal object HandoffDetector {
     }
 
     /**
+     * A running step that names another bot and reads like passing work on, for routes other
+     * than the two above (Chief of Staff's routing script). Needs the roster's bot names.
+     */
+    fun namedTargetOf(
+        message: ChatMessage,
+        bots: Set<String>,
+        self: String?,
+    ): String? {
+        if (message.role != MessageRole.TOOL || bots.isEmpty()) return null
+        val content = message.content
+        val hinted =
+            DELEGATION_HINT.containsMatchIn(content) || DELEGATION_HINT.containsMatchIn(message.toolName.orEmpty())
+        if (!hinted) return null
+        val byLower = bots.associateBy { it.lowercase() }
+        return WORD
+            .findAll(content)
+            .mapNotNull { byLower[it.value.lowercase()] }
+            .firstOrNull { !it.equals(self, ignoreCase = true) }
+    }
+
+    /**
      * Hand-offs in [messages] not yet [known], oldest first. A CLI step counts only while it runs;
      * a board task counts once created, since the other bot starts after the step has finished.
      */
@@ -72,12 +100,14 @@ internal object HandoffDetector {
         self: String?,
         known: Set<String>,
         nowMs: Long = System.currentTimeMillis(),
+        bots: Set<String> = emptySet(),
     ): List<DetectedHandoff> {
         val found = mutableListOf<DetectedHandoff>()
         for (message in messages.asReversed().take(TAIL)) {
             if (message.role != MessageRole.TOOL || message.isHistoricalCache) continue
             if (message.id in known || nowMs - message.timestamp > STALE_MS) continue
-            val cli = if (message.toolStatus == ToolStatus.RUNNING) targetOf(message) else null
+            val running = message.toolStatus == ToolStatus.RUNNING
+            val cli = if (running) targetOf(message) ?: namedTargetOf(message, bots, self) else null
             val board = if (cli == null && message.toolStatus != ToolStatus.FAILED) boardTargetOf(message) else null
             val target = cli ?: board ?: continue
             if (target.equals(self, ignoreCase = true)) continue

@@ -1,11 +1,18 @@
 package com.m57.hermescontrol.ui.chat.fullbleed
 
+import com.m57.hermescontrol.data.model.Attachment
+import com.m57.hermescontrol.data.model.BusySendMode
 import com.m57.hermescontrol.ui.chat.ChatMessage
 import com.m57.hermescontrol.ui.chat.ChatTimelineState
 import com.m57.hermescontrol.ui.chat.ChatUiState
 import com.m57.hermescontrol.ui.chat.ClarifyUi
 import com.m57.hermescontrol.ui.chat.MessageRole
+import com.m57.hermescontrol.ui.chat.PendingSend
+import com.m57.hermescontrol.ui.chat.PendingSendState
 import com.m57.hermescontrol.ui.chat.StreamingState
+import com.m57.hermescontrol.ui.chat.VaultCodePromptUi
+import com.m57.hermescontrol.ui.chat.VaultSaveLoginPromptUi
+import com.m57.hermescontrol.ui.chat.VaultUnlockPromptUi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -17,6 +24,88 @@ class TranscriptUiStateTest {
     private val live = ChatMessage(id = "live", role = MessageRole.USER, content = "hello")
     private val historical = ChatMessage(id = "historical", role = MessageRole.USER, content = "older")
     private val clarify = ClarifyUi(text = "choose")
+
+    @Test
+    fun emptyStateDoesNotHideOtherRenderableTailContent() {
+        val empty = TranscriptUiState.resolve(ChatUiState(), ChatTimelineState(), StreamingState(), null, null)
+        assertTrue(shouldShowChatEmptyState(empty, hasReplyError = false))
+        val visibleStates =
+            listOf(
+                empty.copy(vaultUnlockPrompt = VaultUnlockPromptUi("unlock", "session")),
+                empty.copy(vaultSaveLoginPrompt = VaultSaveLoginPromptUi("save", "session")),
+                empty.copy(vaultCodePrompt = VaultCodePromptUi("code", "session")),
+                empty.copy(isCompressing = true),
+                empty.copy(compressionStatus = "Compressing"),
+                empty.copy(streamingState = StreamingState(streamingMessage = live)),
+                empty.copy(isAgentTyping = true),
+                empty.copy(isLoading = true),
+                empty.copy(messages = listOf(live)),
+            )
+        visibleStates.forEach { assertFalse(shouldShowChatEmptyState(it, hasReplyError = false)) }
+        assertFalse(shouldShowChatEmptyState(empty, hasReplyError = true))
+    }
+
+    @Test
+    fun `clarify on empty live transcript uses list rather than empty state`() {
+        val transcript =
+            TranscriptUiState.resolve(
+                ChatUiState(currentSessionId = "session", clarifyRequest = clarify),
+                ChatTimelineState(),
+                StreamingState(),
+                null,
+                null,
+            )
+        assertSame(clarify, transcript.clarifyRequest)
+        assertFalse(shouldShowChatEmptyState(transcript, hasReplyError = false))
+    }
+
+    @Test
+    fun `empty historical snapshot remains empty without displaying live clarify`() {
+        val transcript =
+            TranscriptUiState.resolve(
+                ChatUiState(currentSessionId = "session", clarifyRequest = clarify),
+                ChatTimelineState(historyMessages = emptyList()),
+                StreamingState(),
+                null,
+                null,
+            )
+        assertNull(transcript.clarifyRequest)
+        assertTrue(shouldShowChatEmptyState(transcript, hasReplyError = false))
+    }
+
+    @Test
+    fun acceptedLivePromptKeepsItsTextAndImageUntilHistoryConfirmsIt() {
+        val image = Attachment("file:///private/photo", "photo.png", "image/png", 3)
+        val prompt = live.copy(attachments = listOf(image), serverRowId = 10)
+        val result =
+            TranscriptUiState.resolve(
+                chat =
+                    ChatUiState(
+                        messages = listOf(prompt),
+                        isAgentTyping = true,
+                        pendingSends =
+                            listOf(
+                                PendingSend(
+                                    prompt.id,
+                                    "scope",
+                                    "session",
+                                    prompt.content,
+                                    attachments = listOf(image),
+                                    mode = BusySendMode.CORRECT,
+                                    state = PendingSendState.ACCEPTED,
+                                    userRowId = 10,
+                                ),
+                            ),
+                    ),
+                timeline = ChatTimelineState(),
+                streaming = StreamingState(),
+                savingAttachmentPath = null,
+                speakingMessageId = null,
+            )
+
+        assertEquals(listOf(prompt), result.messages)
+        assertEquals(listOf(image), result.messages.single().attachments)
+    }
 
     @Test
     fun `live state preserves prompts streaming and paging actions`() {

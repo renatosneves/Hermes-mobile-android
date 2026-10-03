@@ -27,7 +27,11 @@ class SlashCommandDispatcher {
         val cmd = parts[0].lowercase()
 
         return when (cmd) {
-            "/stop", "/interrupt" -> {
+            "/stop" -> {
+                SlashResult.Stop
+            }
+
+            "/interrupt" -> {
                 SlashResult.Interrupt
             }
 
@@ -96,10 +100,13 @@ sealed class SlashResult {
     /** Interrupt the active session (client-side immediate). */
     data object Interrupt : SlashResult()
 
+    /** Desktop `/stop`: interrupt the active turn, then kill background processes (`process.stop`). */
+    data object Stop : SlashResult()
+
     /** Create a new session (client-side immediate). */
     data object NewSession : SlashResult()
 
-    /** Forward to command.dispatch via WebSocket. */
+    /** Execute through slash.exec, with command.dispatch as the desktop-compatible fallback. */
     data object RpcDispatch : SlashResult()
 
     /** Fork the active conversation via the session.branch WebSocket RPC. */

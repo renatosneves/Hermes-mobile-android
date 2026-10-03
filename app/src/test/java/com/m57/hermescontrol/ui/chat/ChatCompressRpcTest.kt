@@ -202,7 +202,7 @@ class ChatCompressRpcTest {
             val compressIndex = methodCalls.indexOf(WsMethods.SESSION_COMPRESS)
             assertTrue("expected SESSION_COMPRESS in $methodCalls", compressIndex >= 0)
             val params = paramsCalls[compressIndex]
-            assertEquals(sessionId, params["session_id"])
+            assertEquals(JsonPrimitive(sessionId), params["session_id"])
             assertFalse("focus_topic should be omitted when blank", params.containsKey("focus_topic"))
         }
 
@@ -225,8 +225,8 @@ class ChatCompressRpcTest {
             val compressIndex = methodCalls.indexOf(WsMethods.SESSION_COMPRESS)
             assertTrue("expected SESSION_COMPRESS in $methodCalls", compressIndex >= 0)
             val params = paramsCalls[compressIndex]
-            assertEquals(sessionId, params["session_id"])
-            assertEquals("auth decisions", params["focus_topic"])
+            assertEquals(JsonPrimitive(sessionId), params["session_id"])
+            assertEquals(JsonPrimitive("auth decisions"), params["focus_topic"])
         }
 
     @Test
@@ -248,7 +248,7 @@ class ChatCompressRpcTest {
             val compressIndex = methodCalls.indexOf(WsMethods.SESSION_COMPRESS)
             assertTrue("expected SESSION_COMPRESS in $methodCalls", compressIndex >= 0)
             val params = paramsCalls[compressIndex]
-            assertEquals(sessionId, params["session_id"])
+            assertEquals(JsonPrimitive(sessionId), params["session_id"])
             assertFalse("focus_topic should be omitted when blank", params.containsKey("focus_topic"))
             assertTrue(WsMethods.COMMAND_DISPATCH !in methodCalls)
         }
@@ -272,8 +272,8 @@ class ChatCompressRpcTest {
             val compressIndex = methodCalls.indexOf(WsMethods.SESSION_COMPRESS)
             assertTrue("expected SESSION_COMPRESS in $methodCalls", compressIndex >= 0)
             val params = paramsCalls[compressIndex]
-            assertEquals(sessionId, params["session_id"])
-            assertEquals("architecture details", params["focus_topic"])
+            assertEquals(JsonPrimitive(sessionId), params["session_id"])
+            assertEquals(JsonPrimitive("architecture details"), params["focus_topic"])
         }
 
     @Test
