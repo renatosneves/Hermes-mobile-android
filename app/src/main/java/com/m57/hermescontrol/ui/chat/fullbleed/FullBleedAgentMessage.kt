@@ -41,8 +41,10 @@ import com.m57.hermescontrol.ui.chat.InlineAttachment
 import com.m57.hermescontrol.ui.chat.MarkdownText
 import com.m57.hermescontrol.ui.chat.MessageSegment
 import com.m57.hermescontrol.ui.chat.TokenEstimator
+import com.m57.hermescontrol.ui.chat.components.MessageReactionChips
 import com.m57.hermescontrol.ui.chat.components.ReasoningCard
 import com.m57.hermescontrol.ui.chat.components.rememberCopyFeedback
+import com.m57.hermescontrol.ui.chat.markdown.streamingSettledLength
 import com.m57.hermescontrol.ui.chat.splitByMedia
 import kotlinx.coroutines.launch
 
@@ -115,14 +117,40 @@ internal fun FullBleedAgentMessage(
             when (segment) {
                 is MessageSegment.Text -> {
                     SelectionContainer {
-                        MarkdownText(
-                            text = segment.text,
-                            textColor = textColor,
-                            isStreaming = message.isStreaming,
-                            searchQuery = searchQuery,
-                            isCurrentMatch = isCurrentMatch,
-                            onImageClick = onImageClick,
-                        )
+                        if (message.isStreaming) {
+                            // While it's written, draw the settled paragraphs once and redraw only
+                            // the growing tail, so long replies don't re-render on every word.
+                            val cut = streamingSettledLength(segment.text)
+                            Column {
+                                if (cut > 0) {
+                                    MarkdownText(
+                                        text = segment.text.substring(0, cut).trimEnd(),
+                                        textColor = textColor,
+                                        isStreaming = false,
+                                        searchQuery = searchQuery,
+                                        isCurrentMatch = isCurrentMatch,
+                                        onImageClick = onImageClick,
+                                    )
+                                }
+                                MarkdownText(
+                                    text = segment.text.substring(cut),
+                                    textColor = textColor,
+                                    isStreaming = true,
+                                    searchQuery = searchQuery,
+                                    isCurrentMatch = isCurrentMatch,
+                                    onImageClick = onImageClick,
+                                )
+                            }
+                        } else {
+                            MarkdownText(
+                                text = segment.text,
+                                textColor = textColor,
+                                isStreaming = false,
+                                searchQuery = searchQuery,
+                                isCurrentMatch = isCurrentMatch,
+                                onImageClick = onImageClick,
+                            )
+                        }
                     }
                 }
 
@@ -141,6 +169,10 @@ internal fun FullBleedAgentMessage(
                     Spacer(modifier = Modifier.height(6.dp))
                 }
             }
+        }
+
+        if (!message.isStreaming) {
+            MessageReactionChips(message.reactions, Modifier.padding(top = 2.dp))
         }
 
         if (!message.isStreaming && message.content.isNotBlank()) {

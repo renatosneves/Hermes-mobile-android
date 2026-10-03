@@ -75,6 +75,8 @@ data class SessionInfo(
     val status: String? = null,
     val preview: String? = null,
     val started_at: Double? = null,
+    // Epoch seconds the run ended; null while it is still going.
+    val ended_at: Double? = null,
     val source: String? = null,
     val parent_session_id: String? = null,
     val display_name: String? = null,
@@ -123,7 +125,10 @@ data class SessionRenameRequest(
 @Serializable
 data class BulkDeleteRequest(
     val ids: List<String>,
-    val delete_all: Boolean = false,
+    // Destructive POSTs read the profile off the BODY (not the ?profile=
+    // query rewrite) — an unnamed bulk delete is refused with 400 on a
+    // multi-profile backend. Null stays valid for single-profile hosts.
+    val profile: String? = null,
 )
 
 @Serializable
@@ -134,5 +139,13 @@ data class BulkDeleteResponse(
 
 @Serializable
 data class PruneRequest(
-    val days: Int,
+    // Server contract: `older_than_days` (hermes_cli/web_models.py SessionPrune).
+    // The old `days` key was unknown to the backend, so the user's choice was
+    // silently dropped and the server pruned its own 90-day default.
+    @SerialName("older_than_days") val olderThanDays: Int,
+    // Destructive POSTs read the profile off the BODY (not the ?profile= query
+    // rewrite): on a multi-profile backend an unnamed prune is refused with
+    // 400 (web_routers/_common.py destructive_profile). Null stays valid for
+    // single-profile hosts.
+    val profile: String? = null,
 )

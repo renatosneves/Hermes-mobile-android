@@ -24,6 +24,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.Json
@@ -154,6 +155,36 @@ class BotsViewModelTest {
                 viewModel.uiState.value.displayProfiles
                     .map { it.name }
             assertEquals(listOf("scout"), searchResults)
+        }
+
+    @Test
+    fun `a refresh while one is running is folded into it`() =
+        runTest(testDispatcher) {
+            val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+            coEvery { mockApi.getProfiles() } coAnswers {
+                gate.await()
+                Response.success(ProfilesResponse(listOf(ProfileInfo(name = "default"))))
+            }
+            coEvery { mockApi.getActiveProfile() } returns Response.success(ActiveProfileResponse(active = "default"))
+
+            val viewModel = BotsViewModel(ioDispatcher = testDispatcher, autoLoad = false)
+            viewModel.loadBots()
+            // Let it reach the slow call without running the clock into its timeout.
+            runCurrent()
+            viewModel.loadBots(isRefresh = true)
+            viewModel.loadBots(isRefresh = true)
+            runCurrent()
+            gate.complete(Unit)
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) { mockApi.getProfiles() }
+            assertFalse(viewModel.uiState.value.isLoading)
+            assertFalse(viewModel.uiState.value.isRefreshing)
+            assertEquals(
+                listOf("default"),
+                viewModel.uiState.value.profiles
+                    .map { it.name },
+            )
         }
 
     @Test

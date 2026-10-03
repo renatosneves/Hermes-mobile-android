@@ -103,7 +103,22 @@ android {
             buildConfigField("boolean", "ALLOW_CLEARTEXT", "true")
             manifestPlaceholders["usesCleartextTraffic"] = "true"
         }
+
+        // Optimised test builds: R8-shrunk and non-debuggable like release, but the same
+        // .dev package and debug signature as the dev builds, so they install over them
+        // and keep your sign-in and data.
+        create("beta") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+            signingConfig = signingConfigs["debug"]
+            isDebuggable = false
+            isProfileable = true
+            matchingFallbacks += listOf("release")
+        }
     }
+    // Shares the dev builds' "Hermes Dev" name and icon labels.
+    sourceSets["beta"].res.srcDirs("src/debug/res")
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21

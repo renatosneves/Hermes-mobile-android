@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.m57.hermescontrol.data.model.Attachment
 import com.m57.hermescontrol.data.model.BusySendMode
+import com.m57.hermescontrol.diagnostics.ChatTrace
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -60,6 +61,25 @@ internal fun pendingSendIdsConfirmedByDurableAliases(
         .filter { it in durableUserAliasIds }
         .toSet()
 }
+
+/**
+ * #1427: the `prompt.submit` `user_row_id` is the exact gateway row for that send, so a history
+ * page containing it proves delivery even when the merge could not alias the local bubble.
+ */
+internal fun pendingSendIdsConfirmedByRowIds(
+    pageRowIds: Set<Long>,
+    pending: List<PendingSend>,
+): Set<String> =
+    pending
+        .asSequence()
+        .filter {
+            it.state in setOf(PendingSendState.SENDING, PendingSendState.ACCEPTED, PendingSendState.UNKNOWN)
+        }.filter { it.userRowId != null && it.userRowId in pageRowIds }
+        .map { it.id }
+        .toSet()
+
+/** #1427: a receipt holding a gateway `user_row_id` is stored server-side and must never become UNKNOWN. */
+internal fun canDemoteAcceptedReceipt(receipt: PendingSend): Boolean = receipt.userRowId == null
 
 /** Synchronous writes keep the queue recoverable when Android kills the process just after a tap. */
 class ChatSendStore(
@@ -146,6 +166,46 @@ class ChatSendStore(
         if (prefs != null && !prefs.edit().putString("rows", json.encodeToString(next)).commit()) {
             error("Could not save chat send queue")
         }
+        traceChanges(rows, next)
         rows = next
     }
+
+    private fun traceChanges(
+        before: List<PendingSend>,
+        after: List<PendingSend>,
+    ) {
+        val old = before.associateBy { it.id }
+        val new = after.associateBy { it.id }
+        for ((id, row) in new) {
+            val was = old[id]
+            if (was == null) {
+                ChatTrace.note(
+                    "outbox + ${id.take(
+                        8,
+                    )} ${row.state} session=${row.sessionId.take(12)} ${ChatTrace.snippet(row.text)}",
+                )
+            } else if (was.state != row.state || was.userRowId != row.userRowId) {
+                ChatTrace.note("outbox ${id.take(8)} ${was.state} -> ${row.state} row=${row.userRowId}")
+            }
+        }
+        for (id in old.keys - new.keys) ChatTrace.note("outbox - ${id.take(8)} (${old.getValue(id).state})")
+    }
 }
+
+/** #1427: uncertain receipt bubbles live in recovery UI, not after their server transcript counterpart. */
+internal fun messagesWithoutUnconfirmedReceipts(
+    messages: List<ChatMessage>,
+    pending: List<PendingSend>,
+): List<ChatMessage> {
+    val recoveryIds =
+        pending
+            .filter {
+                it.state == PendingSendState.UNKNOWN || it.state == PendingSendState.REJECTED
+            }.mapTo(mutableSetOf()) { it.id }
+    if (recoveryIds.isEmpty()) return messages
+    return messages.filterNot { it.id in recoveryIds && it.canonicalRestId == null }
+}
+
+/** #1427: normal submission/acceptance stays in the transcript, not in recovery. */
+internal val PendingSend.needsRecovery: Boolean
+    get() = state != PendingSendState.SENDING && state != PendingSendState.ACCEPTED

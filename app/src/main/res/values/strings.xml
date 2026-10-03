@@ -29,6 +29,7 @@
 
     <!-- Actions -->
     <string name="action_retry">Retry</string>
+    <string name="action_copy_error">Copy error</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_confirm">Confirm</string>
     <string name="action_clear">Clear</string>
@@ -179,6 +180,7 @@
     <string name="notif_title">Hermes</string>
     <string name="notif_waiting_replies">Waiting for Hermes replies</string>
     <string name="notif_connected_in_background">Connected in background</string>
+    <string name="notif_action_turn_off">Turn off</string>
     <string name="notif_connecting">Connecting…</string>
     <string name="notif_waiting_network">Waiting for network</string>
     <string name="notif_reconnecting">Reconnecting</string>
@@ -190,6 +192,8 @@
     <string name="notif_channel_service_desc">Keeps connection alive in the background</string>
     <string name="notif_channel_chat_name">Hermes Chat Replies</string>
     <string name="notif_channel_chat_desc">Alerts for new replies from Hermes</string>
+    <string name="notif_session_complete">Session finished: %1$s</string>
+    <string name="notif_session_failed">Session failed: %1$s</string>
     <string name="action_reply">Reply</string>
 
     <!-- Chat Screen & Bubble -->
@@ -242,6 +246,13 @@
     <string name="chat_busy_override">Send mode for this message</string>
     <string name="chat_busy_override_once">This choice applies once; the saved default stays the same.</string>
     <string name="chat_pending_sends">Pending messages</string>
+    <string name="chat_send_accepted">Accepted by server</string>
+    <plurals name="chat_pending_count">
+        <item quantity="one">%d pending message</item>
+        <item quantity="other">%d pending messages</item>
+    </plurals>
+    <string name="chat_pending_discard">Dismiss</string>
+    <string name="chat_pending_discard_warning">Remove this message from the device queue? This does not cancel work or delete messages already received by the server.</string>
     <string name="chat_pending_queued">Queued on this device</string>
     <string name="chat_pending_parked">Parked after Stop</string>
     <string name="chat_pending_sending">Sending\u2026</string>
@@ -295,6 +306,8 @@
     <string name="settings_field_token">Auth Token</string>
     <string name="settings_keep_connected_in_background_title">Stay connected in background</string>
     <string name="settings_keep_connected_in_background_desc">Keep Hermes connected while using other apps. Shows an ongoing notification and may use more battery.</string>
+    <string name="settings_notify_session_completions_title">Notify when a session completes</string>
+    <string name="settings_notify_session_completions_desc">Alert when any Hermes session finishes while the app is in the background. Keeps Hermes connected in the background (ongoing notification, extra battery use) so finished sessions can alert you.</string>
     <string name="settings_sec_behavior">Behavior</string>
     <string name="settings_item_auto_reconnect">Auto-Reconnect</string>
     <string name="settings_desc_auto_reconnect">Automatically reconnect on disconnect</string>
@@ -391,6 +404,7 @@
     <string name="theme_preset_catppuccin">Catppuccin</string>
     <string name="theme_preset_amoled">AMOLED Black (Dark only)</string>
     <string name="theme_preset_nord">Nord</string>
+    <string name="theme_preset_garnet">Garnet</string>
 
     <!-- Language -->
     <string name="settings_item_language">Language</string>
@@ -904,6 +918,7 @@
     <string name="sessions_prune_desc">Delete sessions older than the specified number of days.</string>
     <string name="sessions_prune_days_label">Days threshold</string>
     <string name="sessions_prune_confirm">Prune</string>
+    <string name="sessions_pruning">Pruning old sessions…</string>
     <string name="sessions_empty_cleanup_desc">Empty</string>
     <string name="sessions_empty_cleanup_title">Delete empty sessions?</string>
     <string name="sessions_empty_cleanup_message">Delete %1$d empty session(s). Active and archived sessions are kept.</string>
@@ -1884,4 +1899,51 @@
     <string name="voice_live_mute">Mute</string>
     <string name="voice_live_unmute">Unmute</string>
     <string name="voice_live_end">End</string>
+    <string name="bots_preview_you">You:</string>
+    <string name="bots_preview_empty">No messages yet</string>
+    <string name="voice_live_ask_approval">%1$s needs your OK to: %2$s</string>
+    <string name="voice_live_ask_question">%1$s is asking: %2$s</string>
+    <string name="voice_live_ask_secret">%1$s needs a password or secret. Answer in the chat.</string>
+    <string name="voice_live_approve">Approve</string>
+    <string name="voice_live_deny">Deny</string>
+    <string name="voice_live_answer_in_chat">Answer in chat</string>
+    <string name="freeze_report_title">Hermes stopped last time</string>
+    <string name="freeze_report_body">The app froze or closed unexpectedly. Share the report it recorded so the problem can be fixed.</string>
+    <string name="freeze_report_share">Share report</string>
+    <string name="freeze_report_dismiss">Not now</string>
+    <string name="chat_report_send">Send chat report</string>
+    <string name="bots_list_hide">Hide bot list</string>
+    <string name="bots_list_show">Show bot list</string>
+    <string name="handoff_view_setting">Hand-off view</string>
+    <string name="handoff_mode_split">Side by side</string>
+    <string name="handoff_mode_split_desc">Unfolded, the bot doing the work opens beside the chat. Folded, a strip shows above it.</string>
+    <string name="handoff_mode_strip">Strip only</string>
+    <string name="handoff_mode_strip_desc">Never split the screen. Tap the strip to see the work.</string>
+    <string name="handoff_mode_off">Off</string>
+    <string name="handoff_mode_off_desc">Hand-offs stay a normal step in the chat.</string>
+    <string name="handoff_done_button">Done</string>
+    <string name="handoff_live">Live</string>
+    <string name="handoff_done">Done</string>
+    <string name="handoff_working">Working: %1$s</string>
+    <string name="handoff_finished">Finished: %1$s</string>
+    <string name="handoff_finished_line">Closing shortly</string>
+    <string name="handoff_starting">Starting…</string>
+    <string name="handoff_step">Running a step</string>
+    <string name="handoff_task_from">Task from %1$s · read-only</string>
+    <string name="handoff_waiting">Waiting for %1$s to start…</string>
+    <string name="handoff_waiting_board">On the board. Waiting for %1$s to pick it up…</string>
+    <string name="handoff_footer">You\'re watching %1$s. %2$s still owns the reply.</string>
+    <string name="handoff_open_chat">Open chat</string>
+    <string name="handoff_pin">Keep open</string>
+    <string name="handoff_unpin">Let it close</string>
+    <string name="handoff_close">Close</string>
+    <string name="voice_live_muted">Muted</string>
+    <string name="share_pick_bot">Share to a bot</string>
+    <string name="share_pick_bot_hint">Tap the bot that should get it. Nothing is sent until you press send.</string>
+    <string name="share_cancel">Cancel</string>
+    <string name="mcp_tab_installed">Installed</string>
+    <string name="mcp_tab_catalog">Catalog</string>
+    <string name="mcp_servers_catalog_empty_title">No catalog entries</string>
+    <string name="mcp_servers_catalog_installed">Installed</string>
+    <string name="settings_desc_theme_preset_dynamic">Used for status colors while Material You supplies the app colors.</string>
 </resources>

@@ -130,6 +130,25 @@ class ProfileSwitchCoordinatorTest {
         }
 
     @Test
+    fun `focusing a bot keeps the socket and the chat`() =
+        runTest {
+            every { AuthManager.activeProfileId } returns kotlinx.coroutines.flow.MutableStateFlow("default")
+            val resets = Channel<String>(Channel.UNLIMITED)
+            val switches = Channel<String>(Channel.UNLIMITED)
+            backgroundScope.launch { ProfileSwitchCoordinator.chatReset.collect { resets.send(it) } }
+            backgroundScope.launch { ProfileSwitchCoordinator.switched.collect { switches.send(it) } }
+            runCurrent()
+
+            ProfileSwitchCoordinator.focusProfile("ledger")
+            runCurrent()
+
+            verify { AuthManager.setActiveProfileId("ledger") }
+            verify(exactly = 0) { HermesWsClient.disconnect() }
+            assertEquals("ledger", switches.tryReceive().getOrNull())
+            assertTrue(resets.tryReceive().isFailure)
+        }
+
+    @Test
     fun `failure touches nothing`() =
         runTest {
             coEvery { mockApi.setActiveProfile(any()) } returns errorResponse(500)

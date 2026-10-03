@@ -1,6 +1,7 @@
 package com.m57.hermescontrol.data.ws
 
 import android.util.Log
+import com.m57.hermescontrol.data.model.parseMessageReactions
 import com.m57.hermescontrol.ui.chat.extractTodosFromMap
 import kotlinx.serialization.json.JsonObject
 
@@ -278,7 +279,7 @@ object EventParser {
 
             "status.update" -> {
                 val status = payload?.get("status") as? String
-                WsEvent.StatusUpdate(status, payload)
+                WsEvent.StatusUpdate(status, payload, sessionId)
             }
 
             "error" -> {
@@ -331,6 +332,20 @@ object EventParser {
             "reaction" -> {
                 val kind = payload?.get("kind") as? String ?: ""
                 WsEvent.ReactionEvent(kind)
+            }
+
+            "message.reaction" -> {
+                val rowId = (payload?.get("row_id") as? Number)?.toLong()
+                if (rowId == null) {
+                    WsEvent.Unknown(rawJson)
+                } else {
+                    WsEvent.MessageReactionUpdated(
+                        rowId = rowId,
+                        reactions = parseMessageReactions(payload["reactions"]),
+                        role = payload["role"] as? String ?: "",
+                        sessionId = sessionId,
+                    )
+                }
             }
 
             "approval.request" -> {
