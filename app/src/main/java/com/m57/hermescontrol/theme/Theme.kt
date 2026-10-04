@@ -1,5 +1,7 @@
 package com.m57.hermescontrol.theme
 
+import android.app.Activity
+import android.content.ContextWrapper
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
@@ -8,8 +10,11 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import com.m57.hermescontrol.theme.presets.DefaultTheme
 import kotlinx.serialization.Serializable
 
@@ -52,6 +57,22 @@ internal fun resolveStatusColors(
     return theme.statusFor(darkTheme) ?: requireNotNull(DefaultTheme.statusFor(darkTheme))
 }
 
+/** Dark status and navigation bar icons on a light theme, light ones on a dark theme, whatever the phone's mode. */
+@Composable
+private fun SystemBarIcons(darkTheme: Boolean) {
+    val view = LocalView.current
+    if (view.isInEditMode) return
+    SideEffect {
+        var context = view.context
+        while (context is ContextWrapper && context !is Activity) context = context.baseContext
+        val window = (context as? Activity)?.window ?: return@SideEffect
+        WindowCompat.getInsetsController(window, view).apply {
+            isAppearanceLightStatusBars = !darkTheme
+            isAppearanceLightNavigationBars = !darkTheme
+        }
+    }
+}
+
 @Composable
 fun HermesControlTheme(
     themePreference: ThemePreference = LocalThemePreference.current,
@@ -66,6 +87,9 @@ fun HermesControlTheme(
             ThemePreference.LIGHT -> false
             ThemePreference.DARK -> true
         }
+    // Written before any screen reads it, so the Bots home draws in the right theme on its first frame.
+    if (BotsPalette.isDark != darkTheme) BotsPalette.isDark = darkTheme
+    SystemBarIcons(darkTheme)
 
     val context = LocalContext.current
     val dynamicAvailable =

@@ -415,13 +415,13 @@ private fun AskCard(
                 }
                 Button(
                     onClick = onApprove,
-                    colors = ButtonDefaults.buttonColors(containerColor = hue, contentColor = BotsPalette.Ink),
+                    colors = ButtonDefaults.buttonColors(containerColor = hue, contentColor = BotsPalette.OnHue),
                     modifier = Modifier.testTag("voice_live_approve"),
                 ) { Text(stringResource(R.string.voice_live_approve)) }
             } else {
                 Button(
                     onClick = onOpenChat,
-                    colors = ButtonDefaults.buttonColors(containerColor = hue, contentColor = BotsPalette.Ink),
+                    colors = ButtonDefaults.buttonColors(containerColor = hue, contentColor = BotsPalette.OnHue),
                     modifier = Modifier.testTag("voice_live_open_chat"),
                 ) { Text(stringResource(R.string.voice_live_answer_in_chat)) }
             }

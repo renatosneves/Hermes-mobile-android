@@ -41,9 +41,13 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuOpen
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.GroupAdd
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
@@ -67,6 +71,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -109,10 +114,12 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.m57.hermescontrol.NavigationController
 import com.m57.hermescontrol.R
+import com.m57.hermescontrol.data.local.AuthManager
 import com.m57.hermescontrol.data.model.ProfileInfo
 import com.m57.hermescontrol.diagnostics.ChatTrace
 import com.m57.hermescontrol.share.ShareInbox
 import com.m57.hermescontrol.theme.BotsPalette
+import com.m57.hermescontrol.theme.ThemePreference
 import com.m57.hermescontrol.ui.chat.ChatScreen
 import com.m57.hermescontrol.ui.chat.ChatViewModel
 import com.m57.hermescontrol.ui.chat.VoiceLiveCalls
@@ -879,6 +886,24 @@ private fun RailHeader(
                     },
                     modifier = Modifier.testTag("bots_handoff_setting"),
                 )
+                // Day, night, or whatever the phone is set to; the same setting as Settings > Appearance.
+                val theme by AuthManager.themePreferenceFlow.collectAsState()
+                HorizontalDivider(color = BotsPalette.Line)
+                for ((pref, label, icon) in THEME_CHOICES) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(label)) },
+                        leadingIcon = { Icon(icon, contentDescription = null) },
+                        trailingIcon = {
+                            if (theme == pref) Icon(Icons.Filled.Check, contentDescription = null)
+                        },
+                        onClick = {
+                            menuOpen = false
+                            AuthManager.setThemePreference(pref)
+                        },
+                        modifier = Modifier.testTag("bots_theme_${pref.name.lowercase()}"),
+                    )
+                }
+                HorizontalDivider(color = BotsPalette.Line)
                 // What the chat recorded, for tracing a problem seen on the phone.
                 val context = LocalContext.current
                 DropdownMenuItem(
@@ -893,6 +918,13 @@ private fun RailHeader(
         }
     }
 }
+
+private val THEME_CHOICES =
+    listOf(
+        Triple(ThemePreference.LIGHT, R.string.bots_theme_day, Icons.Filled.LightMode),
+        Triple(ThemePreference.DARK, R.string.bots_theme_night, Icons.Filled.DarkMode),
+        Triple(ThemePreference.SYSTEM, R.string.bots_theme_auto, Icons.Filled.BrightnessAuto),
+    )
 
 @Composable
 private fun SearchField(
@@ -1166,7 +1198,7 @@ private fun UnreadBadge(
     ) {
         Text(
             text = label,
-            color = BotsPalette.Ink,
+            color = BotsPalette.OnHue,
             fontSize = 10.5.sp,
             fontWeight = FontWeight.ExtraBold,
             maxLines = 1,

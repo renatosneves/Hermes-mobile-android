@@ -115,9 +115,9 @@ fun BotOrb(
                         } else {
                             drawRect(
                                 Brush.radialGradient(
-                                    0f to lerp(hue, BotsPalette.Fg, 0.7f),
+                                    0f to lerp(hue, BotsPalette.Highlight, 0.7f),
                                     0.38f to hue,
-                                    1f to lerp(hue, BotsPalette.Ink, 0.55f),
+                                    1f to lerp(hue, BotsPalette.OnHue, 0.55f),
                                     center = Offset(center.x - r * 0.36f, center.y - r * 0.44f),
                                     radius = r * 1.7f,
                                 ),
@@ -137,14 +137,14 @@ fun BotOrb(
                 Icon(
                     imageVector = Icons.Filled.Group,
                     contentDescription = null,
-                    tint = BotsPalette.Ink,
+                    tint = BotsPalette.OnHue,
                     modifier = Modifier.size(size * 0.5f),
                 )
             } else {
                 val fontSize = with(LocalDensity.current) { (size * 0.34f).toSp() }
                 Text(
                     text = initials,
-                    color = BotsPalette.Ink,
+                    color = BotsPalette.OnHue,
                     fontSize = fontSize,
                     fontWeight = FontWeight.ExtraBold,
                     letterSpacing = (-0.3).sp,

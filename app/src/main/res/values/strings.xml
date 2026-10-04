@@ -1915,6 +1915,9 @@
     <string name="bots_list_hide">Hide bot list</string>
     <string name="bots_list_show">Show bot list</string>
     <string name="handoff_view_setting">Hand-off view</string>
+    <string name="bots_theme_day">Day</string>
+    <string name="bots_theme_night">Night</string>
+    <string name="bots_theme_auto">Auto (follows phone)</string>
     <string name="handoff_mode_split">Side by side</string>
     <string name="handoff_mode_split_desc">Unfolded, the bot doing the work opens beside the chat. Folded, a strip shows above it.</string>
     <string name="handoff_mode_strip">Strip only</string>
