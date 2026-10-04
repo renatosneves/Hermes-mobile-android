@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -43,9 +42,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
@@ -86,9 +85,6 @@ fun UserBubble(
     modifier: Modifier = Modifier,
     pendingSendState: PendingSendState? = null,
 ) {
-    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-    val maxBubbleWidth = screenWidth * 0.80f
-
     AnimatedVisibility(
         visible = true,
         enter =
@@ -161,8 +157,13 @@ fun UserBubble(
                 Surface(
                     modifier =
                         Modifier
-                            .widthIn(max = maxBubbleWidth)
-                            .clip(
+                            // A share of the chat's own width, not the screen's, so the bubble fills
+                            // a side pane or a wide unfolded screen the way the replies do.
+                            .layout { measurable, constraints ->
+                                val max = (constraints.maxWidth * BUBBLE_WIDTH_FRACTION).toInt()
+                                val placeable = measurable.measure(constraints.copy(minWidth = 0, maxWidth = max))
+                                layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+                            }.clip(
                                 RoundedCornerShape(
                                     topStart = 16.dp,
                                     topEnd = 16.dp,
@@ -277,6 +278,8 @@ fun UserBubble(
         }
     }
 }
+
+private const val BUBBLE_WIDTH_FRACTION = 0.88f
 
 /** WhatsApp-style delivery ticks: one dim check while sending, two once the server has the prompt. */
 private enum class DeliveryState { SENT, DELIVERED }
