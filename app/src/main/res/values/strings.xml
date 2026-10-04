@@ -1934,6 +1934,7 @@
     <string name="handoff_step">Running a step</string>
     <string name="handoff_task_from">Task from %1$s · read-only</string>
     <string name="handoff_waiting">Waiting for %1$s to start…</string>
+    <string name="handoff_waiting_dm">Message queued. Waiting for %1$s to pick it up (it may be finishing another task)…</string>
     <string name="handoff_waiting_board">On the board. Waiting for %1$s to pick it up…</string>
     <string name="handoff_footer">You\'re watching %1$s. %2$s still owns the reply.</string>
     <string name="handoff_open_chat">Open chat</string>

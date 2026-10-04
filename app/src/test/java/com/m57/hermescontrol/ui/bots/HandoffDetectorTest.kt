@@ -126,4 +126,67 @@ class HandoffDetectorTest {
         )
         assertNull(HandoffDetector.pickSession(sessions.take(1), start))
     }
+
+    // tool.complete for message_agent: the ack says queued; the run happens later in the target's Bot Chat.
+    private fun dm(
+        target: String,
+        id: String = "d1",
+        callId: String = "call_$id",
+    ) = ChatMessage(
+        id = id,
+        role = MessageRole.TOOL,
+        content =
+            """{"tool_id":"$callId","name":"message_agent","args":{"target":"$target","message":"Try WhatsApp"},""" +
+                """"result":"{\"status\": \"queued\", \"delivery_id\": \"x\"}"}""",
+        toolName = "message_agent",
+        toolCallId = callId,
+        toolStatus = ToolStatus.COMPLETED,
+        timestamp = now - 5_000,
+    )
+
+    @Test
+    fun `a message_agent DM counts once finished, by profile or friendly name`() {
+        val bots = setOf("ask", "chief-of-staff", "link")
+        assertEquals("chief-of-staff", HandoffDetector.dmTargetOf(dm("Chief of Staff"), bots))
+        assertEquals("link", HandoffDetector.dmTargetOf(dm("@link"), bots))
+        val found = HandoffDetector.detect(listOf(dm("chief-of-staff")), "ask", emptySet(), now, bots)
+        assertEquals(listOf("chief-of-staff" to HandoffKind.BOT_CHAT), found.map { it.target to it.kind })
+        // The saved copy of the same step has another id but the same call id: not a second hand-off.
+        assertTrue(
+            HandoffDetector
+                .detect(
+                    listOf(dm("chief-of-staff", id = "saved", callId = "call_d1")),
+                    "ask",
+                    setOf("call_d1"),
+                    now,
+                    bots,
+                ).isEmpty(),
+        )
+    }
+
+    @Test
+    fun `a DM follows the bot's Bot Chat even though it started long ago`() {
+        val sessions =
+            listOf(
+                SessionInfo(id = "tg", started_at = (now + 3_000) / 1000.0, source = "telegram"),
+                SessionInfo(id = "chat", title = "Bot Chat", started_at = 1_000.0, last_active = now / 1000.0),
+            )
+        assertEquals("chat", HandoffDetector.pickSession(sessions, now, HandoffKind.BOT_CHAT)?.id)
+    }
+
+    @Test
+    fun `only the part of the Bot Chat after the DM is shown`() {
+        val old = ChatMessage(id = "1", role = MessageRole.ASSISTANT, content = "earlier", timestamp = now - 3_600_000)
+        val delivered =
+            ChatMessage(
+                id = "2",
+                role = MessageRole.USER,
+                content = "Message from Ask (@ask): hi",
+                timestamp =
+                    now + 2_000,
+            )
+        val reply = ChatMessage(id = "3", role = MessageRole.ASSISTANT, content = "Done", timestamp = now + 9_000)
+        assertEquals(listOf("2", "3"), sinceHandoff(listOf(old, delivered, reply), now).map { it.id })
+        assertTrue(sinceHandoff(listOf(old), now).isEmpty())
+    }
 }

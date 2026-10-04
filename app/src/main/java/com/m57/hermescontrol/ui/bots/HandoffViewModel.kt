@@ -127,7 +127,7 @@ class HandoffViewModel : ViewModel() {
                     }
                 }
             if (sessionId != null) {
-                val known = finished + items.map { it.key }
+                val known = finished + items.map { it.key } + items.map { it.toolCallId }.filter { it.isNotEmpty() }
                 val found = HandoffDetector.detect(messages, self, known, bots = bots)
                 for (h in found) {
                     ChatTrace.note("hand-off to ${h.target} started (${h.kind.name.lowercase()})")
@@ -183,6 +183,10 @@ class HandoffViewModel : ViewModel() {
                     }
             }
         val sessionId = item.sessionId ?: session?.id
+        if (item.kind == HandoffKind.BOT_CHAT) {
+            stepBotChat(item, session, sessionId, now)
+            return
+        }
         val ended = session?.ended_at != null
         // A run that has gone quiet for a while is over even if it never stamped its end.
         val idle =
@@ -202,6 +206,36 @@ class HandoffViewModel : ViewModel() {
                 messages = messages ?: current.messages,
                 done = doneNow || neverStarted,
                 settled = (doneNow && messages != null) || neverStarted,
+            )
+        }
+    }
+
+    /**
+     * A DM lands in the other bot's long-lived Bot Chat, so only what came after the DM is this
+     * hand-off, and the run is over once the bot has answered and the chat has gone quiet.
+     */
+    private suspend fun stepBotChat(
+        item: HandoffState,
+        session: SessionInfo?,
+        sessionId: String?,
+        now: Long,
+    ) {
+        val all = sessionId?.let { fetchMessages(item.target, it) }
+        val shown = all?.let { sinceHandoff(it, item.startedAtMs) }
+        val replied =
+            shown != null &&
+                shown.any { it.role == MessageRole.ASSISTANT } &&
+                shown.lastOrNull()?.role == MessageRole.ASSISTANT
+        val quiet = session?.let { (it.last_active ?: 0.0) * 1000 < now - BOT_CHAT_QUIET_MS } == true
+        val doneNow = item.done || (replied && quiet)
+        val neverStarted = shown.isNullOrEmpty() && now - item.startedAtMs > BOARD_GIVE_UP_MS
+        if (doneNow && !item.done) ChatTrace.note("hand-off to ${item.target} answered (bot chat)")
+        update(item.key) { current ->
+            current.copy(
+                sessionId = sessionId,
+                messages = shown ?: current.messages,
+                done = doneNow || neverStarted,
+                settled = (doneNow && shown != null) || neverStarted,
             )
         }
     }
@@ -279,14 +313,14 @@ class HandoffViewModel : ViewModel() {
         book.update { b ->
             val source = b.sourceSessionId ?: return@update b
             val (gone, kept) = b.items.partition { it.sourceSessionId == source }
-            finished += gone.map { it.key }
+            finished += gone.map { it.key } + gone.map { it.toolCallId }.filter { it.isNotEmpty() }
             b.copy(items = kept, collapsed = b.collapsed - source, pinned = b.pinned - source)
         }
 
     /** Drops every hand-off (the view was switched off). */
     fun closeAll() =
         book.update { b ->
-            finished += b.items.map { it.key }
+            finished += b.items.map { it.key } + b.items.map { it.toolCallId }.filter { it.isNotEmpty() }
             HandoffBook(sourceSessionId = b.sourceSessionId)
         }
 
@@ -301,7 +335,32 @@ class HandoffViewModel : ViewModel() {
         const val IDLE_MS = 3 * 60_000L
         const val TRACE_TAIL = 10
 
+        /** A Bot Chat that answered and stayed still this long is done with the hand-off. */
+        const val BOT_CHAT_QUIET_MS = 15_000L
+
         /** The program a terminal step runs, never its arguments. */
         val COMMAND_HEAD = Regex(""""command"\s*:\s*"([A-Za-z0-9_./-]{1,40})""")
     }
+}
+
+/** Allowance for the phone's clock being a little off from the server's. */
+private const val CLOCK_SLACK_MS = 60_000L
+
+/**
+ * The part of a bot's Bot Chat that belongs to a DM sent at [startedAtMs]: from the delivered
+ * "Message from …" turn on, or failing that from the first message after the DM.
+ */
+internal fun sinceHandoff(
+    messages: List<ChatMessage>,
+    startedAtMs: Long,
+): List<ChatMessage> {
+    val earliest = startedAtMs - CLOCK_SLACK_MS
+    val start =
+        messages
+            .indexOfFirst {
+                it.role == MessageRole.USER && it.timestamp >= earliest && it.content.startsWith("Message from")
+            }.takeIf { it >= 0 }
+            ?: messages.indexOfFirst { it.timestamp >= earliest }.takeIf { it >= 0 }
+            ?: return emptyList()
+    return messages.drop(start)
 }

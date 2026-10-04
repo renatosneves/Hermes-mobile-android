@@ -181,7 +181,11 @@ internal fun HandoffPane(
         if (state.messages.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 val waiting =
-                    if (state.kind == HandoffKind.BOARD) R.string.handoff_waiting_board else R.string.handoff_waiting
+                    when (state.kind) {
+                        HandoffKind.BOARD -> R.string.handoff_waiting_board
+                        HandoffKind.BOT_CHAT -> R.string.handoff_waiting_dm
+                        HandoffKind.CLI -> R.string.handoff_waiting
+                    }
                 Text(
                     stringResource(waiting, bot.title),
                     color = BotsPalette.Muted,

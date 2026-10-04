@@ -12,6 +12,12 @@ enum class HandoffKind {
 
     /** A `kanban_create` task with an assignee; the board starts the other bot a little later. */
     BOARD,
+
+    /**
+     * A `message_agent` DM: queued, then delivered into the other bot's own "Bot Chat" session,
+     * which already exists, so the run shows up as new messages there rather than a new session.
+     */
+    BOT_CHAT,
 }
 
 /** A hand-off spotted in a chat: the step that made it and the bot it went to. */
@@ -39,6 +45,12 @@ internal object HandoffDetector {
     private val ASSIGNEE = Regex(""""assignee"\s*:\s*"([A-Za-z0-9_.-]+)"""")
 
     private const val BOARD_TOOL = "kanban_create"
+
+    private const val DM_TOOL = "message_agent"
+    private val DM_TARGET = Regex(""""target"\s*:\s*"@?([^"]{1,64})"""")
+
+    /** The session a `message_agent` DM lands in, in every bot. */
+    const val BOT_CHAT_TITLE = "Bot Chat"
 
     // Words that mark a step as passing work on (a routing script, a send/delegate tool).
     private val DELEGATION_HINT =
@@ -69,6 +81,34 @@ internal object HandoffDetector {
         if (!isCreate) return null
         return ASSIGNEE.find(message.content)?.groupValues?.get(1)
     }
+
+    /**
+     * The bot a `message_agent` DM went to, as a roster name: the target may be the profile
+     * name or its friendly name ("Chief of Staff" for chief-of-staff).
+     */
+    fun dmTargetOf(
+        message: ChatMessage,
+        bots: Set<String> = emptySet(),
+    ): String? {
+        if (message.role != MessageRole.TOOL) return null
+        val isDm = message.toolName == DM_TOOL || message.content.contains("\"$DM_TOOL\"")
+        if (!isDm) return null
+        val raw =
+            DM_TARGET
+                .find(message.content)
+                ?.groupValues
+                ?.get(1)
+                ?.trim() ?: return null
+        if (bots.isEmpty()) return raw
+        val slug = slugOf(raw)
+        return bots.firstOrNull { it.equals(raw, ignoreCase = true) }
+            ?: bots.firstOrNull { slugOf(it) == slug }
+            ?: raw
+    }
+
+    private val NON_SLUG = Regex("[^a-z0-9]+")
+
+    private fun slugOf(name: String): String = name.lowercase().replace(NON_SLUG, "-").trim('-')
 
     /**
      * A running step that names another bot and reads like passing work on, for routes other
@@ -106,12 +146,22 @@ internal object HandoffDetector {
         for (message in messages.asReversed().take(TAIL)) {
             if (message.role != MessageRole.TOOL || message.isHistoricalCache) continue
             if (message.id in known || nowMs - message.timestamp > STALE_MS) continue
+            // The same step under its saved id, after the chat swapped in the server's copy.
+            if (message.toolCallId.isNotEmpty() && message.toolCallId in known) continue
+            val failed = message.toolStatus == ToolStatus.FAILED
             val running = message.toolStatus == ToolStatus.RUNNING
-            val cli = if (running) targetOf(message) ?: namedTargetOf(message, bots, self) else null
-            val board = if (cli == null && message.toolStatus != ToolStatus.FAILED) boardTargetOf(message) else null
-            val target = cli ?: board ?: continue
+            val dm = if (!failed) dmTargetOf(message, bots) else null
+            val cli = if (dm == null && running) targetOf(message) ?: namedTargetOf(message, bots, self) else null
+            val board = if (dm == null && cli == null && !failed) boardTargetOf(message) else null
+            val target = dm ?: cli ?: board ?: continue
             if (target.equals(self, ignoreCase = true)) continue
-            found += DetectedHandoff(message, target, if (cli != null) HandoffKind.CLI else HandoffKind.BOARD)
+            val kind =
+                when {
+                    dm != null -> HandoffKind.BOT_CHAT
+                    cli != null -> HandoffKind.CLI
+                    else -> HandoffKind.BOARD
+                }
+            found += DetectedHandoff(message, target, kind)
         }
         return found.asReversed()
     }
@@ -127,6 +177,13 @@ internal object HandoffDetector {
         taken: Set<String> = emptySet(),
     ): SessionInfo? {
         val earliest = (startedAtMs - CLOCK_SLACK_MS) / 1000.0
+        if (kind == HandoffKind.BOT_CHAT) {
+            // An old session that came alive again: shared by every DM to that bot, so never "taken".
+            return sessions.firstOrNull { it.title.equals(BOT_CHAT_TITLE, ignoreCase = true) }
+                ?: sessions
+                    .filter { (it.last_active ?: 0.0) >= earliest }
+                    .maxByOrNull { it.last_active ?: 0.0 }
+        }
         val source = if (kind == HandoffKind.BOARD) "kanban" else "cli"
         val fresh =
             sessions
