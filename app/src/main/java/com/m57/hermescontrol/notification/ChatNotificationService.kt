@@ -196,6 +196,9 @@ class ChatNotificationService : Service() {
         internal const val NOTIFICATION_ID = 1
         internal const val PENDING_NOTIFICATION_ID = 2
 
+        /** How often a backgrounded service checks whether it still has anything to wait for. */
+        private const val IDLE_CHECK_INTERVAL_MS = 60_000L
+
         /** Session-complete notifications: one fixed id, tagged per stored session. */
         private const val SESSION_COMPLETE_NOTIFICATION_ID = 10_000
 
@@ -673,6 +676,17 @@ class ChatNotificationService : Service() {
                 launch {
                     NetworkMonitor.networkChanges.collect {
                         if (!isAppInForeground.get()) {
+                            BackgroundConnectionController.default.reconcileState()
+                        }
+                    }
+                }
+                // A turn that went quiet stops counting as pending (ReplyPendingTracker); this lets
+                // the service and the socket go once nothing is left to wait for.
+                launch {
+                    while (true) {
+                        delay(IDLE_CHECK_INTERVAL_MS)
+                        if (!isAppInForeground.get()) {
+                            HermesWsClient.disconnectIfIdleInBackground()
                             BackgroundConnectionController.default.reconcileState()
                         }
                     }

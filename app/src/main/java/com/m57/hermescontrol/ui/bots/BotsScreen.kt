@@ -71,6 +71,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
@@ -180,6 +181,7 @@ fun BotsScreen(
 
     // Horizontal drags on this screen belong to its content; the drawer opens from the menu button.
     DisableDrawerGestures()
+    DecorativeMotion.TrackPowerSaver()
 
     // Poll only while the screen is on show; coming back refreshes straight away.
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -1393,18 +1395,16 @@ private fun StatusPill(
     needsYou: Boolean = false,
 ) {
     val shape = RoundedCornerShape(999.dp)
-    val glow =
-        if (working) {
-            val transition = rememberInfiniteTransition(label = "pill-glow")
-            val g by transition.animateFloat(
+    val glow: State<Float>? =
+        if (working && DecorativeMotion.enabled) {
+            rememberInfiniteTransition(label = "pill-glow").animateFloat(
                 initialValue = 0f,
                 targetValue = 1f,
                 animationSpec = infiniteRepeatable(tween(1400), RepeatMode.Restart),
                 label = "pill-glow-value",
             )
-            g
         } else {
-            0f
+            null
         }
     val time = BotsPresentation.relativeTime(BotsPresentation.lastActive(profile), now)
     val text =
@@ -1444,7 +1444,8 @@ private fun StatusPill(
                     .drawBehind {
                         val r = 3.5.dp.toPx()
                         if (working) {
-                            drawCircle(hue.copy(alpha = (1f - glow) * 0.5f), radius = r + glow * 3.dp.toPx())
+                            val g = glow?.value ?: 0.5f
+                            drawCircle(hue.copy(alpha = (1f - g) * 0.5f), radius = r + g * 3.dp.toPx())
                         }
                         drawCircle(
                             when {

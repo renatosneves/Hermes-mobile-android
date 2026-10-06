@@ -62,6 +62,8 @@ internal class WsTransport(
     private val intentionalClose = AtomicBoolean(false)
     private val acceptQueuedMessages = AtomicBoolean(true)
     private val appInForeground = AtomicBoolean(true)
+
+    internal val isAppInForeground: Boolean get() = appInForeground.get()
     private val externalActivityConnectionLease = AtomicBoolean(false)
     private val backgroundConnectionLease = AtomicBoolean(false)
     private val messageQueue = ConcurrentLinkedQueue<String>()

@@ -79,6 +79,7 @@ object HermesWsClient {
             },
             cancelSocket = { transport.cancelSocket() },
             pendingReply = { transport.pendingReply },
+            isForeground = { transport.isAppInForeground },
             nowMs = ::monotonicTimeMs,
             log = { Log.w(TAG, it) },
             debugLog = { Log.d(TAG, it) },
@@ -201,6 +202,8 @@ object HermesWsClient {
     fun acquireBackgroundConnectionLease() = transport.acquireBackgroundConnectionLease()
 
     fun releaseBackgroundConnectionLease() = transport.releaseBackgroundConnectionLease()
+
+    fun disconnectIfIdleInBackground() = transport.disconnectIfIdleInBackground()
 
     @VisibleForTesting
     internal fun hasBackgroundConnectionLease(): Boolean = transport.hasBackgroundConnectionLease()

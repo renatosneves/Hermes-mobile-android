@@ -99,4 +99,24 @@ class ReplyPendingTrackerTest {
         assertFalse(tracker.isPendingExcept("cos"))
         assertFalse(tracker.isPendingExcept(null))
     }
+
+    @Test
+    fun aTurnThatWentQuietStopsHoldingTheConnection() {
+        var now = 0L
+        val tracker = ReplyPendingTracker(nowMs = { now })
+        tracker.onTurnActivity("cos")
+        tracker.onPromptSubmitted("r1", "ask")
+
+        now += ReplyPendingTracker.STALE_MS - 1
+        assertTrue(tracker.isPending)
+        tracker.onTurnActivity("cos")
+
+        now += 2
+        // The unanswered submit expired; the turn that just streamed has not.
+        assertTrue(tracker.isPending)
+        assertFalse(tracker.isPendingExcept("cos"))
+
+        now += ReplyPendingTracker.STALE_MS
+        assertFalse(tracker.isPending)
+    }
 }

@@ -15,6 +15,8 @@ internal class ConnectionHealth(
     private val pingRequest: suspend (Long) -> Unit,
     private val cancelSocket: () -> Unit,
     private val pendingReply: () -> Boolean,
+    /** In the background the heartbeat slows down, so a kept connection wakes the radio less often. */
+    private val isForeground: () -> Boolean = { true },
     private val nowMs: () -> Long = { System.nanoTime() / 1_000_000L },
     private val log: (String) -> Unit = {},
     private val debugLog: (String) -> Unit = {},
@@ -22,6 +24,8 @@ internal class ConnectionHealth(
     companion object {
         internal const val HEARTBEAT_INTERVAL_MS = 15_000L
         internal const val STALE_THRESHOLD_MS = 30_000L
+        internal const val BACKGROUND_HEARTBEAT_INTERVAL_MS = 60_000L
+        internal const val BACKGROUND_STALE_THRESHOLD_MS = 150_000L
         internal const val LIVENESS_PROBE_TIMEOUT_MS = 5_000L
     }
 
@@ -33,7 +37,9 @@ internal class ConnectionHealth(
     val lastLatencyMs: StateFlow<Long?> = _lastLatencyMs.asStateFlow()
 
     val isHealthy: Boolean
-        get() = isConnected() && (nowMs() - lastPongTimestamp < STALE_THRESHOLD_MS)
+        get() = isConnected() && (nowMs() - lastPongTimestamp < staleThresholdMs())
+
+    private fun staleThresholdMs(): Long = if (isForeground()) STALE_THRESHOLD_MS else BACKGROUND_STALE_THRESHOLD_MS
 
     private var healthJob: Job? = null
     private var foregroundProbeJob: Job? = null
@@ -45,7 +51,7 @@ internal class ConnectionHealth(
         healthJob =
             scope.launch {
                 while (isConnected()) {
-                    delay(HEARTBEAT_INTERVAL_MS)
+                    delay(if (isForeground()) HEARTBEAT_INTERVAL_MS else BACKGROUND_HEARTBEAT_INTERVAL_MS)
                     if (isConnected()) {
                         try {
                             ping(timeoutMs = LIVENESS_PROBE_TIMEOUT_MS)
@@ -85,7 +91,7 @@ internal class ConnectionHealth(
     private fun runHealthCheckPass(): Boolean {
         if (!isConnected()) return false
         val staleMs = nowMs() - lastPongTimestamp
-        if (staleMs <= STALE_THRESHOLD_MS) return true
+        if (staleMs <= staleThresholdMs()) return true
         log("WebSocket stale (${staleMs / 1000}s without frames) — cancelling to trigger reconnect")
         cancelSocket()
         return false

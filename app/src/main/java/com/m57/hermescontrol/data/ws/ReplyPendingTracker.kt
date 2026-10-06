@@ -25,43 +25,51 @@ package com.m57.hermescontrol.data.ws
  * connection longer when it is sure another turn is still running, never
  * strand it open on an unmatched id.
  *
+ * Expiry: a turn that shows no activity for [STALE_MS] no longer counts (a
+ * completion lost to a dropped socket would otherwise keep the background
+ * connection and its notification up for good, draining the battery).
+ *
  * Thread-safe: called from the OkHttp reader thread, the send path and the
  * event collector.
  */
-internal class ReplyPendingTracker {
-    private val submitSessionByRequestId = HashMap<String, String?>()
-    private val busySessions = HashSet<String>()
+internal class ReplyPendingTracker(
+    private val nowMs: () -> Long = System::currentTimeMillis,
+) {
+    /** Prompt submits awaiting the gateway's answer, with when they were sent. */
+    private val submitSessionByRequestId = HashMap<String, Pair<String?, Long>>()
 
-    /** Legacy flag for turns whose session id is unknown (null). */
-    private var anonymousTurn = false
+    /** Sessions with a turn in flight, with their last sign of life. */
+    private val busySessions = HashMap<String, Long>()
+
+    /** Legacy flag for turns whose session id is unknown (null): when it was last seen, or null. */
+    private var anonymousTurnAt: Long? = null
 
     @get:Synchronized
     val isPending: Boolean
-        get() = submitSessionByRequestId.isNotEmpty() || busySessions.isNotEmpty() || anonymousTurn
+        get() {
+            expireStale()
+            return submitSessionByRequestId.isNotEmpty() || busySessions.isNotEmpty() || anonymousTurnAt != null
+        }
 
     @Synchronized
     fun onPromptSubmitted(
         requestId: String,
         sessionId: String?,
     ) {
-        submitSessionByRequestId[requestId] = sessionId
+        submitSessionByRequestId[requestId] = sessionId to nowMs()
     }
 
     /** @return true when [requestId] was a tracked prompt submit. */
     @Synchronized
     fun onPromptAccepted(requestId: String): Boolean {
-        if (!submitSessionByRequestId.containsKey(requestId)) return false
-        markBusy(submitSessionByRequestId.remove(requestId))
+        val submit = submitSessionByRequestId.remove(requestId) ?: return false
+        markBusy(submit.first)
         return true
     }
 
     /** @return true when [requestId] was a tracked prompt submit. */
     @Synchronized
-    fun onPromptRejected(requestId: String): Boolean {
-        if (!submitSessionByRequestId.containsKey(requestId)) return false
-        submitSessionByRequestId.remove(requestId)
-        return true
-    }
+    fun onPromptRejected(requestId: String): Boolean = submitSessionByRequestId.remove(requestId) != null
 
     @Synchronized
     fun onTurnActivity(sessionId: String?) {
@@ -70,26 +78,39 @@ internal class ReplyPendingTracker {
 
     @Synchronized
     fun onTurnComplete(sessionId: String?) {
-        if (sessionId == null || !busySessions.remove(sessionId)) clear()
+        if (sessionId == null || busySessions.remove(sessionId) == null) clear()
     }
 
     /** True when a turn other than [sessionId]'s is still in flight. */
     @Synchronized
     fun isPendingExcept(sessionId: String?): Boolean {
         if (sessionId == null) return false
+        expireStale()
         return submitSessionByRequestId.isNotEmpty() ||
-            anonymousTurn ||
-            busySessions.any { it != sessionId }
+            anonymousTurnAt != null ||
+            busySessions.keys.any { it != sessionId }
     }
 
     @Synchronized
     fun clear() {
         submitSessionByRequestId.clear()
         busySessions.clear()
-        anonymousTurn = false
+        anonymousTurnAt = null
     }
 
     private fun markBusy(sessionId: String?) {
-        if (sessionId.isNullOrBlank()) anonymousTurn = true else busySessions.add(sessionId)
+        if (sessionId.isNullOrBlank()) anonymousTurnAt = nowMs() else busySessions[sessionId] = nowMs()
+    }
+
+    private fun expireStale() {
+        val cutoff = nowMs() - STALE_MS
+        submitSessionByRequestId.values.removeAll { it.second < cutoff }
+        busySessions.values.removeAll { it < cutoff }
+        if ((anonymousTurnAt ?: Long.MAX_VALUE) < cutoff) anonymousTurnAt = null
+    }
+
+    companion object {
+        /** Long enough for a slow tool step to stay quiet, short enough not to hold the radio for hours. */
+        const val STALE_MS = 15 * 60_000L
     }
 }

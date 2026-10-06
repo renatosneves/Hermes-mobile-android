@@ -15,7 +15,7 @@ import androidx.compose.material.icons.filled.Group
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.State
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,31 +59,29 @@ fun BotOrb(
     attention: Boolean = false,
 ) {
     val shape = remember(shapeKey, size) { resolveAvatarShape(shapeKey, size) }
-    val pulse =
-        if (attention) {
-            val transition = rememberInfiniteTransition(label = "orb-attention")
-            val value by transition.animateFloat(
+    // Animated values are read only while drawing, so a spinning ring redraws without recomposing.
+    val motion = DecorativeMotion.enabled
+    val pulse: State<Float>? =
+        if (attention && motion) {
+            rememberInfiniteTransition(label = "orb-attention").animateFloat(
                 initialValue = 0.45f,
                 targetValue = 1f,
                 animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
                 label = "orb-attention-alpha",
             )
-            value
         } else {
-            0f
+            null
         }
-    val spin =
-        if (working) {
-            val transition = rememberInfiniteTransition(label = "orb-spin")
-            val angle by transition.animateFloat(
+    val spin: State<Float>? =
+        if (working && motion) {
+            rememberInfiniteTransition(label = "orb-spin").animateFloat(
                 initialValue = 0f,
                 targetValue = 360f,
                 animationSpec = infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Restart),
                 label = "orb-angle",
             )
-            angle
         } else {
-            0f
+            null
         }
 
     Box(modifier = modifier.size(size + 10.dp).testTag("bot_orb"), contentAlignment = Alignment.Center) {
@@ -158,7 +156,7 @@ fun BotOrb(
             val c = center
             if (attention) {
                 drawCircle(
-                    color = BotsPalette.Attention.copy(alpha = pulse),
+                    color = BotsPalette.Attention.copy(alpha = pulse?.value ?: 1f),
                     radius = orbRadius + 3.dp.toPx(),
                     center = c,
                     style = Stroke(width = 2.dp.toPx()),
@@ -166,7 +164,7 @@ fun BotOrb(
             } else if (working) {
                 val ringRadius = orbRadius + 4.dp.toPx()
                 val stroke = 2.dp.toPx()
-                rotate(spin, pivot = c) {
+                rotate(spin?.value ?: 0f, pivot = c) {
                     drawArc(
                         brush =
                             Brush.sweepGradient(
