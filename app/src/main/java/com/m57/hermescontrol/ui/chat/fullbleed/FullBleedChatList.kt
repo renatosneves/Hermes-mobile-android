@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -152,6 +153,13 @@ fun FullBleedChatList(
                 if (hiddenPrefixSize > 0) messages.subList(hiddenPrefixSize, messages.size) else messages
             }
         val toolMilestones = remember(renderedMessages) { toolCallMilestones(renderedMessages) }
+        // Tool steps fold into one line per turn; these turns (by first step id) are opened up.
+        val openToolGroups = remember { mutableStateMapOf<String, Boolean>() }
+        // Opened by hand, or holding a search hit.
+        val toolsOpen: ToolsOpen = { groupKey, steps ->
+            openToolGroups[groupKey] == true ||
+                (searchState.isActive && steps.any { it.id in searchState.matchedIds })
+        }
         val settledTurns = remember(renderedMessages) { groupIntoTurns(renderedMessages) }
         val settledIds = remember(renderedMessages) { renderedMessages.mapTo(HashSet()) { it.id } }
         val turns =
@@ -239,7 +247,7 @@ fun FullBleedChatList(
                 val firstVisibleIndex = listState.firstVisibleItemIndex
                 val anchor = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == firstVisibleIndex }
                 if (anchor != null) {
-                    val newIndex = (fullBleedItemKeys(turns) + tailItems.keys).indexOf(anchor.key)
+                    val newIndex = (fullBleedItemKeys(turns, toolsOpen) + tailItems.keys).indexOf(anchor.key)
                     if (newIndex >= 0 && newIndex != anchor.index) {
                         listState.requestScrollToItem(newIndex, listState.firstVisibleItemScrollOffset)
                     }
@@ -286,6 +294,7 @@ fun FullBleedChatList(
             renderedFirstId = renderedMessages.firstOrNull()?.id,
             turns = turns,
             scrollController = scrollController,
+            toolsOpen = toolsOpen,
         )
 
         val currentDensity = LocalDensity.current
@@ -383,7 +392,26 @@ fun FullBleedChatList(
                                         }
                                     }
                                 }
+                                val toolSteps =
+                                    turn.entries.filterIsInstance<AgentEntry.ToolRow>().map { it.message }
+                                val toolGroupKey = toolSteps.firstOrNull()?.id
+                                val stepsShown = toolGroupKey != null && toolsOpen(toolGroupKey, toolSteps)
                                 turn.entries.forEach { entry ->
+                                    if (entry is AgentEntry.ToolRow && entry.message.id == toolGroupKey) {
+                                        item(
+                                            key = "tools-$toolGroupKey",
+                                            contentType = FullBleedContentType.TOOL,
+                                        ) {
+                                            Column(modifier = Modifier.padding(bottom = 6.dp)) {
+                                                ToolStepsSummary(
+                                                    steps = toolSteps,
+                                                    expanded = stepsShown,
+                                                    onToggle = { openToolGroups[toolGroupKey] = !stepsShown },
+                                                )
+                                            }
+                                        }
+                                    }
+                                    if (entry is AgentEntry.ToolRow && !stepsShown) return@forEach
                                     when (entry) {
                                         is AgentEntry.Prose -> {
                                             val proseMessage = entry.message

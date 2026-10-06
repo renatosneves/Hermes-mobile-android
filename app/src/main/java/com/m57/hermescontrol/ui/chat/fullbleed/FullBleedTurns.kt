@@ -184,8 +184,9 @@ internal fun appendStreamingTurn(
 fun messageIdToLazyIndex(
     turns: List<ChatTurn>,
     leadingItems: Int = 0,
+    toolsOpen: ToolsOpen = ToolsClosed,
 ): Map<String, Int> =
-    fullBleedItemKeys(turns)
+    fullBleedItemKeys(turns, toolsOpen)
         .mapIndexedNotNull { index, key ->
             if (key.startsWith("user-") || key.startsWith("prose-")) {
                 key.substringAfter('-') to index + leadingItems
@@ -198,6 +199,7 @@ fun searchMatchToLazyIndex(
     turns: List<ChatTurn>,
     messages: List<ChatMessage>,
     match: SearchMatch,
+    toolsOpen: ToolsOpen = ToolsClosed,
 ): Int? {
     val message = messages.getOrNull(match.messageIndex) ?: return null
     val prefix =
@@ -206,7 +208,7 @@ fun searchMatchToLazyIndex(
             SearchTarget.REASONING -> "reasoning"
             SearchTarget.TOOL -> "tool"
         }
-    val keys = fullBleedItemKeys(turns)
+    val keys = fullBleedItemKeys(turns, toolsOpen)
     keys.indexOf("$prefix-${message.id}").takeIf { it >= 0 }?.let { return it }
     // Non-hoisted reasoning renders inside its message's prose row, not as its own row.
     return if (match.target == SearchTarget.REASONING) {
@@ -216,8 +218,19 @@ fun searchMatchToLazyIndex(
     }
 }
 
+/**
+ * Whether a turn's tool steps are shown in full: given the turn's first step id and its steps.
+ * Folded, they are one summary row ("tools-<first id>"); open, the summary is followed by each step.
+ */
+typealias ToolsOpen = (groupKey: String, steps: List<ChatMessage>) -> Boolean
+
+val ToolsClosed: ToolsOpen = { _, _ -> false }
+
 /** Lazy row identities, including hoisted reasoning and grouped tool/system entries. */
-internal fun fullBleedItemKeys(turns: List<ChatTurn>): List<String> =
+internal fun fullBleedItemKeys(
+    turns: List<ChatTurn>,
+    toolsOpen: ToolsOpen = ToolsClosed,
+): List<String> =
     buildList {
         turns.forEach { turn ->
             when (turn) {
@@ -231,6 +244,9 @@ internal fun fullBleedItemKeys(turns: List<ChatTurn>): List<String> =
                             .filterIsInstance<AgentEntry.Prose>()
                             .firstOrNull { it.message.reasoningText.isNotBlank() }
                     hoisted?.let { add("reasoning-${it.message.id}") }
+                    val steps = turn.entries.filterIsInstance<AgentEntry.ToolRow>().map { it.message }
+                    val groupKey = steps.firstOrNull()?.id
+                    val open = groupKey != null && toolsOpen(groupKey, steps)
                     turn.entries.forEach { entry ->
                         when (entry) {
                             is AgentEntry.Prose -> {
@@ -242,7 +258,8 @@ internal fun fullBleedItemKeys(turns: List<ChatTurn>): List<String> =
                             }
 
                             is AgentEntry.ToolRow -> {
-                                add("tool-${entry.message.id}")
+                                if (entry.message.id == groupKey) add("tools-$groupKey")
+                                if (open) add("tool-${entry.message.id}")
                             }
 
                             is AgentEntry.SystemEvent -> {

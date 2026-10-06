@@ -115,6 +115,17 @@
     <string name="bots_image_remove">Remove</string>
     <string name="bots_image_error">That image could not be read. Try another one.</string>
     <string name="bots_color_option">Colour %1$s</string>
+    <plurals name="tool_steps_count">
+        <item quantity="one">%1$d step</item>
+        <item quantity="other">%1$d steps</item>
+    </plurals>
+    <plurals name="tool_steps_failed">
+        <item quantity="one">%1$d failed</item>
+        <item quantity="other">%1$d failed</item>
+    </plurals>
+    <string name="tool_steps_running">%1$s…</string>
+    <string name="tool_steps_show">Show steps</string>
+    <string name="tool_steps_hide">Hide steps</string>
     <plurals name="bots_count">
         <item quantity="one">%d bot</item>
         <item quantity="other">%d bots</item>

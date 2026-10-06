@@ -267,7 +267,8 @@ fun BotsScreen(
                     // Profile first, so the chat's resume of this bot's session already names it.
                     viewModel.selectBot(profile)
                     openBotName = profile.name
-                    openSessionId = profile.canonicalSessionId()
+                    // The chat you last had open with this bot (a new one you started, say), else its Bot Chat.
+                    openSessionId = BotsLayoutPrefs.lastSession(context, profile.name) ?: profile.canonicalSessionId()
                     viewModel.markSeen(profile)
                     if (!twoPane) phoneChatOpen = true
                     // Something shared is waiting: this bot's chat takes it.
@@ -367,6 +368,14 @@ fun BotsScreen(
                 }
             }
             val botNames = remember(state.profiles) { state.profiles.map { it.name }.toSet() }
+            // You moved to another chat with the open bot (new chat, or one from its history): keep it.
+            val onSessionChanged: (String, String) -> Unit = { bot, sessionId ->
+                if (bot == openBotName || (openBotName == null && bot == selectedName)) {
+                    openBotName = bot
+                    openSessionId = sessionId
+                    BotsLayoutPrefs.setLastSession(context, bot, sessionId)
+                }
+            }
             val onHandoffMessages: (String?, List<com.m57.hermescontrol.ui.chat.ChatMessage>) -> Unit =
                 { sessionId, messages ->
                     if (handoffMode != HandoffMode.OFF) {
@@ -435,6 +444,7 @@ fun BotsScreen(
                                 BotsLayoutPrefs.setListHidden(context, listHidden)
                             },
                         onChatMessages = onHandoffMessages,
+                        onSessionChanged = onSessionChanged,
                         handoff = handoff?.takeIf { handoffMode == HandoffMode.STRIP || !it.expanded },
                         handoffBot = handoffBot,
                         onHandoffStrip = {
@@ -482,6 +492,7 @@ fun BotsScreen(
                     baseScheme = baseScheme,
                     onBack = closeChat,
                     onChatMessages = onHandoffMessages,
+                    onSessionChanged = onSessionChanged,
                     handoff = handoff,
                     handoffBot = handoffBot,
                     onHandoffStrip = { handoffSheetOpen = true },
@@ -1262,6 +1273,7 @@ private fun BotsChatPane(
     onBack: (() -> Unit)? = null,
     listToggle: NavIcon.Action? = null,
     onChatMessages: ((String?, List<com.m57.hermescontrol.ui.chat.ChatMessage>) -> Unit)? = null,
+    onSessionChanged: (bot: String, sessionId: String) -> Unit = { _, _ -> },
     handoff: HandoffView? = null,
     handoffBot: (String) -> HandoffBot = { error("no hand-off") },
     onHandoffStrip: () -> Unit = {},
@@ -1300,6 +1312,23 @@ private fun BotsChatPane(
                 // The rail owns drawer gestures for this screen; the embedded chat must not
                 // reconcile its own preference over it (issue #619).
                 val chatViewModel: ChatViewModel = viewModel()
+                // Once the chat shows the session asked for, a later switch is yours (new chat, history).
+                // Before that, ids belong to the previous bot's chat still being swapped out.
+                val latestSessionChanged by rememberUpdatedState(onSessionChanged)
+                val requested by rememberUpdatedState(sessionId)
+                LaunchedEffect(chatViewModel, profile.name) {
+                    var settled = false
+                    chatViewModel.uiState
+                        .map { it.currentSessionId }
+                        .distinctUntilChanged()
+                        .collect { current ->
+                            when {
+                                current == null -> Unit
+                                current == requested || requested == null -> settled = true
+                                settled -> latestSessionChanged(profile.name, current)
+                            }
+                        }
+                }
                 if (onChatMessages != null) {
                     val latest by rememberUpdatedState(onChatMessages)
                     LaunchedEffect(chatViewModel) {
@@ -1549,6 +1578,28 @@ private fun BotsDialogs(
 private object BotsLayoutPrefs {
     private const val PREFS = "bots_layout"
     private const val KEY_LIST_HIDDEN = "list_hidden"
+
+    private const val KEY_LAST_SESSION = "last_session:"
+
+    fun lastSession(
+        context: android.content.Context,
+        bot: String,
+    ): String? =
+        context
+            .getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
+            .getString(KEY_LAST_SESSION + bot, null)
+
+    fun setLastSession(
+        context: android.content.Context,
+        bot: String,
+        sessionId: String,
+    ) {
+        context
+            .getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_LAST_SESSION + bot, sessionId)
+            .apply()
+    }
 
     fun listHidden(context: android.content.Context): Boolean =
         context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).getBoolean(KEY_LIST_HIDDEN, false)

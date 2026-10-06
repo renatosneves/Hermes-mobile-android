@@ -15,6 +15,7 @@ internal fun ChatSearchScrollEffect(
     renderedFirstId: String?,
     turns: List<ChatTurn>,
     scrollController: ChatScrollController,
+    toolsOpen: ToolsOpen = ToolsClosed,
 ) {
     LaunchedEffect(
         searchState.isActive,
@@ -36,7 +37,7 @@ internal fun ChatSearchScrollEffect(
                 target = target,
             )
         // A hit in a staged history prefix is retried when the prefix enters layout.
-        val lazyIndex = searchMatchToLazyIndex(turns, messages, match) ?: return@LaunchedEffect
+        val lazyIndex = searchMatchToLazyIndex(turns, messages, match, toolsOpen) ?: return@LaunchedEffect
         scrollController.scrollToSearchMatch(lazyIndex, match.contentOffset, searchTextFor(message, target).length)
     }
 }
