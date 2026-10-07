@@ -73,7 +73,18 @@ data class BotsUiState(
     val seenCounts: Map<String, Int> = emptyMap(),
     /** Latest line of each bot's conversation, Telegram style, by bot name. */
     val previews: Map<String, String> = emptyMap(),
+    /** When that latest line was said (epoch seconds), by bot name: the list's order. */
+    val lastMessageAt: Map<String, Double> = emptyMap(),
+    /** What each live working session is answering right now, by session key. */
+    val liveTasks: Map<String, String> = emptyMap(),
 ) {
+    /** What [profile] is working on, when known (see [BotsPresentation.currentTask]). */
+    fun taskFor(profile: ProfileInfo): String? = BotsPresentation.currentTask(profile, liveTasks)
+
+    /** When [profile]'s conversation last moved: its latest message, else its sessions' activity. */
+    fun lastMessageTime(profile: ProfileInfo): Double? =
+        lastMessageAt[profile.name] ?: BotsPresentation.lastActive(profile)
+
     /** Whether [profile] is busy right now (see [BotsPresentation.isWorking]). */
     fun isWorking(
         profile: ProfileInfo,
@@ -245,12 +256,9 @@ data class BotsUiState(
                         profile.effectiveTitle.lowercase().contains(query) ||
                         profile.effectiveDescription.lowercase().contains(query)
                 }.sortedWith(
-                    compareByDescending<ProfileInfo> { it.name == activeProfileName }
-                        .thenByDescending {
-                            it.canonical_session?.last_active
-                                ?: it.last_session?.last_active
-                                ?: 0.0
-                        }.thenBy { it.name },
+                    // WhatsApp style: the latest message first. Opening or reading a chat moves nothing.
+                    compareByDescending<ProfileInfo> { lastMessageTime(it) ?: 0.0 }
+                        .thenBy { it.name },
                 )
         }
 }
@@ -419,6 +427,7 @@ class BotsViewModel(
                     (p.name !in previewCounts || previewCounts[p.name] != BotsPresentation.messageCount(p))
             }
         if (stale.isEmpty()) return
+        val times = java.util.concurrent.ConcurrentHashMap<String, Double>()
         val fetched =
             coroutineScope {
                 stale
@@ -436,11 +445,9 @@ class BotsViewModel(
                                         )
                                     }
                                 }
-                            val preview =
-                                (result as? NetworkResult.Success)
-                                    ?.data
-                                    ?.messages
-                                    ?.let(BotsPresentation::latestPreview)
+                            val page = (result as? NetworkResult.Success)?.data?.messages
+                            val preview = page?.let(BotsPresentation::latestPreview)
+                            page?.let(BotsPresentation::latestMessageAt)?.let { at -> times[p.name] = at }
                             if (result is NetworkResult.Success) {
                                 previewCounts[p.name] =
                                     BotsPresentation.messageCount(p)
@@ -450,7 +457,9 @@ class BotsViewModel(
                     }.map { it.await() }
             }.filter { it.second != null }
                 .associate { it.first to it.second!! }
-        if (fetched.isNotEmpty()) _uiState.update { it.copy(previews = it.previews + fetched) }
+        if (fetched.isNotEmpty() || times.isNotEmpty()) {
+            _uiState.update { it.copy(previews = it.previews + fetched, lastMessageAt = it.lastMessageAt + times) }
+        }
     }
 
     private fun recordSeenBaselines(profiles: List<ProfileInfo>) {
@@ -476,7 +485,7 @@ class BotsViewModel(
     }
 
     private suspend fun refreshNeedsYou(profiles: List<ProfileInfo>) {
-        val live =
+        val rows =
             runCatching {
                 val result =
                     HermesWsClient
@@ -486,22 +495,30 @@ class BotsViewModel(
                             suppressErrorEvent = true,
                         ).await()
                         .asJsonObject()
-                buildMap {
-                    result
-                        ?.get("sessions")
-                        ?.let { it as? JsonArray }
-                        .orEmpty()
-                        .mapNotNull { it as? JsonObject }
-                        .forEach { row ->
-                            val status = row.string("status") ?: return@forEach
-                            listOfNotNull(row.string("session_key"), row.string("id")).forEach { put(it, status) }
-                        }
-                }
+                result
+                    ?.get("sessions")
+                    ?.let { it as? JsonArray }
+                    .orEmpty()
+                    .mapNotNull { it as? JsonObject }
             }.getOrNull() ?: return
+        val live = mutableMapOf<String, String>()
+        val tasks = mutableMapOf<String, String>()
+        for (row in rows) {
+            val status = row.string("status") ?: continue
+            val keys = listOfNotNull(row.string("session_key"), row.string("id"))
+            keys.forEach { live[it] = status }
+            // While working, the preview is the request in hand (or the reply being written).
+            val preview = row.string("preview")?.takeIf { it.isNotBlank() }
+            if (preview != null && (status == "working" || status == "starting")) keys.forEach { tasks[it] = preview }
+        }
         val waiting = live.filterValues { it == "waiting" }.keys
         val names = BotsPresentation.needsYou(profiles, waiting)
         _uiState.update {
-            if (names == it.needsYou && live == it.liveStatus) it else it.copy(needsYou = names, liveStatus = live)
+            if (names == it.needsYou && live == it.liveStatus && tasks == it.liveTasks) {
+                it
+            } else {
+                it.copy(needsYou = names, liveStatus = live, liveTasks = tasks)
+            }
         }
     }
 

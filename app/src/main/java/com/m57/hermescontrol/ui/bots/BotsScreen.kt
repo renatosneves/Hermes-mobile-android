@@ -427,6 +427,8 @@ fun BotsScreen(
                         sessionId = chatSessionId,
                         now = now,
                         working = selected?.let { state.isWorking(it, now) } == true,
+                        task = selected?.let(state::taskFor),
+                        lastAt = selected?.let(state::lastMessageTime),
                         baseScheme = baseScheme,
                         listToggle =
                             NavIcon.Action(
@@ -489,6 +491,8 @@ fun BotsScreen(
                     sessionId = chatSessionId,
                     now = now,
                     working = state.isWorking(selected, now),
+                    task = state.taskFor(selected),
+                    lastAt = state.lastMessageTime(selected),
                     baseScheme = baseScheme,
                     onBack = closeChat,
                     onChatMessages = onHandoffMessages,
@@ -717,6 +721,8 @@ private fun BotsRail(
                                 },
                             preview = state.previewFor(profile),
                             working = state.isWorking(profile, now),
+                            task = state.taskFor(profile),
+                            lastAt = state.lastMessageTime(profile),
                             onClick = { onOpenBot(profile) },
                             onLongClick = { onEditBot(profile) },
                         )
@@ -1051,6 +1057,8 @@ private fun BotRow(
     unread: Int,
     preview: String,
     working: Boolean,
+    task: String? = null,
+    lastAt: Double? = null,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1058,10 +1066,8 @@ private fun BotRow(
     val hue = hueFor(profile)
     val recent = BotsPresentation.isRecent(profile, now)
     val title = profile.effectiveTitle
-    val summary = BotsPresentation.shortSummary(profile.effectiveDescription)
     val handle = BotsPresentation.distinctHandle(profile.name, title)
-    val task = BotsPresentation.currentTask(profile)
-    val time = BotsPresentation.relativeTime(BotsPresentation.lastActive(profile), now)
+    val time = BotsPresentation.relativeTime(lastAt, now)
     val shape = RoundedCornerShape(14.dp)
     val accent = if (needsYou) BotsPalette.Attention else hue
 
@@ -1142,9 +1148,18 @@ private fun BotRow(
             // latest message of the conversation (three lines in all).
             val status =
                 when {
-                    needsYou -> stringResource(R.string.bots_needs_you)
-                    working -> stringResource(R.string.bots_working_on, task ?: summary)
-                    else -> null
+                    needsYou -> {
+                        stringResource(R.string.bots_needs_you)
+                    }
+
+                    working -> {
+                        task?.let { stringResource(R.string.bots_working_on, it) }
+                            ?: stringResource(R.string.bots_working)
+                    }
+
+                    else -> {
+                        null
+                    }
                 }
             if (status != null) {
                 Text(
@@ -1269,6 +1284,8 @@ private fun BotsChatPane(
     sessionId: String?,
     now: Double,
     working: Boolean,
+    task: String? = null,
+    lastAt: Double? = null,
     baseScheme: androidx.compose.material3.ColorScheme,
     onBack: (() -> Unit)? = null,
     listToggle: NavIcon.Action? = null,
@@ -1356,6 +1373,8 @@ private fun BotsChatPane(
                                 imageUrl = imageUrl,
                                 needsYou = needsYou,
                                 working = working,
+                                task = task,
+                                lastAt = lastAt,
                             )
                         },
                     )
@@ -1386,6 +1405,8 @@ private fun PaneTitle(
     imageUrl: String?,
     needsYou: Boolean,
     working: Boolean,
+    task: String? = null,
+    lastAt: Double? = null,
 ) {
     val recent = BotsPresentation.isRecent(profile, now)
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("bots_pane_title")) {
@@ -1409,7 +1430,16 @@ private fun PaneTitle(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            StatusPill(profile = profile, hue = hue, working = working, recent = recent, now = now, needsYou = needsYou)
+            StatusPill(
+                profile = profile,
+                hue = hue,
+                working = working,
+                recent = recent,
+                now = now,
+                needsYou = needsYou,
+                task = task,
+                lastAt = lastAt,
+            )
         }
     }
 }
@@ -1419,6 +1449,8 @@ private fun StatusPill(
     profile: ProfileInfo,
     hue: Color,
     working: Boolean,
+    task: String? = null,
+    lastAt: Double? = null,
     recent: Boolean,
     now: Double,
     needsYou: Boolean = false,
@@ -1435,13 +1467,25 @@ private fun StatusPill(
         } else {
             null
         }
-    val time = BotsPresentation.relativeTime(BotsPresentation.lastActive(profile), now)
+    val time = BotsPresentation.relativeTime(lastAt, now)
     val text =
         when {
-            needsYou -> stringResource(R.string.bots_waiting_for_you)
-            working -> stringResource(R.string.bots_working_on, BotsPresentation.currentTask(profile) ?: profile.name)
-            time.isNotEmpty() -> stringResource(R.string.bots_last_active, time)
-            else -> "@${profile.name}"
+            needsYou -> {
+                stringResource(R.string.bots_waiting_for_you)
+            }
+
+            working -> {
+                task?.let { stringResource(R.string.bots_working_on, it) }
+                    ?: stringResource(R.string.bots_working)
+            }
+
+            time.isNotEmpty() -> {
+                stringResource(R.string.bots_last_active, time)
+            }
+
+            else -> {
+                "@${profile.name}"
+            }
         }
     val color =
         when {

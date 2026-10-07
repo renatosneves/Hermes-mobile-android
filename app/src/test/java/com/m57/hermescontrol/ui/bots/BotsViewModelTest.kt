@@ -138,16 +138,17 @@ class BotsViewModelTest {
             assertTrue(activeNowNames.contains("scout"))
             assertFalse(activeNowNames.contains("reviewer"))
 
-            // Hidden filtering: reviewer is hidden by default
+            // Hidden filtering: reviewer is hidden by default. Newest activity
+            // first, like WhatsApp: being the active profile does not lift a bot.
             val displayed = state.displayProfiles.map { it.name }
-            assertEquals(listOf("default", "scout"), displayed)
+            assertEquals(listOf("scout", "default"), displayed)
 
-            // Toggle show hidden (sorted: default (active), scout (worker active now), reviewer (canonical last_active))
+            // Toggle show hidden (scout 10 s ago, default 20 s ago, reviewer 500 s ago)
             viewModel.toggleShowHidden()
             val displayedWithHidden =
                 viewModel.uiState.value.displayProfiles
                     .map { it.name }
-            assertEquals(listOf("default", "reviewer", "scout"), displayedWithHidden)
+            assertEquals(listOf("scout", "default", "reviewer"), displayedWithHidden)
 
             // Search filter
             viewModel.setSearchQuery("arxiv")

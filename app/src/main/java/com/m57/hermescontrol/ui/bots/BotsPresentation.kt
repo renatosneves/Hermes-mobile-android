@@ -303,11 +303,37 @@ internal object BotsPresentation {
         return if (last.role == "user") "You: $text" else text
     }
 
-    /** What the bot is doing right now, if we know: the worker's or latest session's title. */
-    fun currentTask(profile: ProfileInfo): String? =
-        (
-            profile.worker_session?.title
-                ?: profile.canonical_session?.title
-                ?: profile.last_session?.title
-        )?.trim()?.takeIf { it.isNotBlank() }
+    /**
+     * When the latest thing you or the bot said was said (epoch seconds): what the list sorts by,
+     * WhatsApp style, so opening or reading a chat never moves it.
+     */
+    fun latestMessageAt(messages: List<SessionMessage>): Double? =
+        messages
+            .asReversed()
+            .firstOrNull { m ->
+                (m.role == "user" || m.role == "assistant") && m.display_kind == null &&
+                    previewText(contentText(m.display_content ?: m.content)).isNotEmpty()
+            }?.timestampEpochMs
+            ?.div(1000.0)
+
+    /**
+     * What the bot is doing right now, if we know: the request its live session is answering,
+     * else a board task's title. Chat titles are left out: they name the conversation (often just
+     * "Bot Chat"), not the work in hand.
+     */
+    fun currentTask(
+        profile: ProfileInfo,
+        liveTasks: Map<String, String> = emptyMap(),
+    ): String? {
+        val keys =
+            listOfNotNull(
+                profile.worker_session?.id,
+                profile.canonical_session?.resolved_id,
+                profile.canonical_session?.id,
+                profile.last_session?.id,
+            )
+        return (keys.firstNotNullOfOrNull { liveTasks[it] } ?: profile.worker_session?.title)
+            ?.let(::previewText)
+            ?.takeIf { it.isNotBlank() }
+    }
 }
