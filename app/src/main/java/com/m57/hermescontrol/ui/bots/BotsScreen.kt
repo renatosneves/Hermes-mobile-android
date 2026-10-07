@@ -123,6 +123,7 @@ import com.m57.hermescontrol.theme.BotsPalette
 import com.m57.hermescontrol.theme.ThemePreference
 import com.m57.hermescontrol.ui.chat.ChatScreen
 import com.m57.hermescontrol.ui.chat.ChatViewModel
+import com.m57.hermescontrol.ui.chat.MessageRole
 import com.m57.hermescontrol.ui.chat.VoiceLiveCalls
 import com.m57.hermescontrol.ui.common.DisableDrawerGestures
 import com.m57.hermescontrol.ui.common.LocalDrawerGestureController
@@ -177,7 +178,10 @@ fun BotsScreen(
     var showCreateGroupDialog by remember { mutableStateOf(false) }
     var now by remember { mutableDoubleStateOf(nowSeconds()) }
     val context = LocalContext.current
-    remember { BotSeenStore.init(context) }
+    remember {
+        BotSeenStore.init(context)
+        BotChatStore.init(context)
+    }
 
     // Horizontal drags on this screen belong to its content; the drawer opens from the menu button.
     DisableDrawerGestures()
@@ -267,8 +271,9 @@ fun BotsScreen(
                     // Profile first, so the chat's resume of this bot's session already names it.
                     viewModel.selectBot(profile)
                     openBotName = profile.name
-                    // The chat you last had open with this bot (a new one you started, say), else its Bot Chat.
-                    openSessionId = BotsLayoutPrefs.lastSession(context, profile.name) ?: profile.canonicalSessionId()
+                    // The chat you last used with this bot (a new one you started, say) unless it has
+                    // spoken in its main chat since; the list previews the same one.
+                    openSessionId = viewModel.uiState.value.chatFor(profile)
                     viewModel.markSeen(profile)
                     if (!twoPane) phoneChatOpen = true
                     // Something shared is waiting: this bot's chat takes it.
@@ -373,7 +378,7 @@ fun BotsScreen(
                 if (bot == openBotName || (openBotName == null && bot == selectedName)) {
                     openBotName = bot
                     openSessionId = sessionId
-                    BotsLayoutPrefs.setLastSession(context, bot, sessionId)
+                    viewModel.rememberChat(bot, sessionId)
                 }
             }
             val onHandoffMessages: (String?, List<com.m57.hermescontrol.ui.chat.ChatMessage>) -> Unit =
@@ -1335,14 +1340,26 @@ private fun BotsChatPane(
                 val requested by rememberUpdatedState(sessionId)
                 LaunchedEffect(chatViewModel, profile.name) {
                     var settled = false
+                    var lastId: String? = null
+                    var lastSent = 0
                     chatViewModel.uiState
-                        .map { it.currentSessionId }
+                        .map { ui -> ui.currentSessionId to ui.messages.count { it.role == MessageRole.USER } }
                         .distinctUntilChanged()
-                        .collect { current ->
+                        .collect { (current, sent) ->
                             when {
                                 current == null -> Unit
-                                current == requested || requested == null -> settled = true
-                                settled -> latestSessionChanged(profile.name, current)
+
+                                !settled && (current == requested || requested == null) -> settled = true
+
+                                !settled -> Unit
+
+                                // Another chat, or you wrote in this one: it is the chat to reopen.
+                                current != lastId || sent > lastSent -> latestSessionChanged(profile.name, current)
+                            }
+                            if (current != null && settled) {
+                                if (current != lastId) lastSent = sent
+                                lastId = current
+                                lastSent = maxOf(lastSent, sent)
                             }
                         }
                 }
@@ -1622,28 +1639,6 @@ private fun BotsDialogs(
 private object BotsLayoutPrefs {
     private const val PREFS = "bots_layout"
     private const val KEY_LIST_HIDDEN = "list_hidden"
-
-    private const val KEY_LAST_SESSION = "last_session:"
-
-    fun lastSession(
-        context: android.content.Context,
-        bot: String,
-    ): String? =
-        context
-            .getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
-            .getString(KEY_LAST_SESSION + bot, null)
-
-    fun setLastSession(
-        context: android.content.Context,
-        bot: String,
-        sessionId: String,
-    ) {
-        context
-            .getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_LAST_SESSION + bot, sessionId)
-            .apply()
-    }
 
     fun listHidden(context: android.content.Context): Boolean =
         context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).getBoolean(KEY_LIST_HIDDEN, false)

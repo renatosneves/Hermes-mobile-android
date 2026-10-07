@@ -77,7 +77,12 @@ data class BotsUiState(
     val lastMessageAt: Map<String, Double> = emptyMap(),
     /** What each live working session is answering right now, by session key. */
     val liveTasks: Map<String, String> = emptyMap(),
+    /** The chat you last moved to with each bot (see [BotChatStore]). */
+    val savedChats: Map<String, SavedChat> = emptyMap(),
 ) {
+    /** The session opened, and previewed in the list, for [profile]. */
+    fun chatFor(profile: ProfileInfo): String? = BotsPresentation.chatToOpen(profile, savedChats[profile.name])
+
     /** What [profile] is working on, when known (see [BotsPresentation.currentTask]). */
     fun taskFor(profile: ProfileInfo): String? = BotsPresentation.currentTask(profile, liveTasks)
 
@@ -416,24 +421,42 @@ class BotsViewModel(
             )
     }
 
-    /** Message count each preview was fetched at, so only bots with new messages are re-read. */
-    private val previewCounts = mutableMapOf<String, Int?>()
+    /**
+     * Session and message count each preview was fetched at, so only bots with new messages are
+     * re-read. A chat other than the bot's main one has no count in the roster: always re-read.
+     */
+    private val previewKeys = mutableMapOf<String, Pair<String, Int?>>()
+
+    /** Remembers that you moved to [sessionId] with [bot], so the list previews that chat too. */
+    fun rememberChat(
+        bot: String,
+        sessionId: String,
+    ) {
+        BotChatStore.put(bot, sessionId)
+        _uiState.update { it.copy(savedChats = BotChatStore.all()) }
+        val profile = _uiState.value.profiles.firstOrNull { it.name == bot } ?: return
+        viewModelScope.launch(ioDispatcher) { refreshPreviews(listOf(profile)) }
+    }
 
     private suspend fun refreshPreviews(profiles: List<ProfileInfo>) {
+        val saved = BotChatStore.all()
+        _uiState.update { it.copy(savedChats = saved) }
+        val chats =
+            profiles.mapNotNull { p ->
+                BotsPresentation.chatToOpen(p, saved[p.name])?.let { p to it }
+            }
         val stale =
-            profiles.filter { p ->
-                val sessionId = p.canonical_session?.let { it.resolved_id ?: it.id }
-                !sessionId.isNullOrBlank() &&
-                    (p.name !in previewCounts || previewCounts[p.name] != BotsPresentation.messageCount(p))
+            chats.filter { (p, sessionId) ->
+                val count = BotsPresentation.messageCount(p).takeIf { sessionId == p.canonicalId() }
+                count == null || previewKeys[p.name] != (sessionId to count)
             }
         if (stale.isEmpty()) return
         val times = java.util.concurrent.ConcurrentHashMap<String, Double>()
         val fetched =
             coroutineScope {
                 stale
-                    .map { p ->
+                    .map { (p, sessionId) ->
                         async(ioDispatcher) {
-                            val sessionId = p.canonical_session?.let { it.resolved_id ?: it.id }.orEmpty()
                             val result =
                                 withTimeoutOrNull(METADATA_TIMEOUT_MS) {
                                     safeApiCall(retries = 0) {
@@ -446,11 +469,16 @@ class BotsViewModel(
                                     }
                                 }
                             val page = (result as? NetworkResult.Success)?.data?.messages
-                            val preview = page?.let(BotsPresentation::latestPreview)
-                            page?.let(BotsPresentation::latestMessageAt)?.let { at -> times[p.name] = at }
+                            val isMain = sessionId == p.canonicalId()
+                            // A new chat with nothing in it yet previews as empty, not as the main chat.
+                            val preview =
+                                page?.let(BotsPresentation::latestPreview) ?: page?.let { "" }.takeUnless { isMain }
+                            val at =
+                                page?.let(BotsPresentation::latestMessageAt)
+                                    ?: saved[p.name]?.at?.takeIf { page != null && !isMain }
+                            at?.let { times[p.name] = it }
                             if (result is NetworkResult.Success) {
-                                previewCounts[p.name] =
-                                    BotsPresentation.messageCount(p)
+                                previewKeys[p.name] = sessionId to BotsPresentation.messageCount(p)
                             }
                             p.name to preview
                         }
@@ -972,3 +1000,6 @@ private fun Any?.asJsonObject(): JsonObject? =
 private fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
 
 private fun JsonObject.bool(key: String): Boolean? = (this[key] as? JsonPrimitive)?.booleanOrNull
+
+private fun ProfileInfo.canonicalId(): String? =
+    (canonical_session?.resolved_id ?: canonical_session?.id)?.takeIf { it.isNotBlank() }

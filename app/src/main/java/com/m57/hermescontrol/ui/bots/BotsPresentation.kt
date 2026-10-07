@@ -193,6 +193,22 @@ internal object BotsPresentation {
     /** Name of the pinned room that seats every visible bot (the group chat falls back to all bots). */
     const val ALL_BOTS_ROOM = "All bots"
 
+    /**
+     * The session the Bots home opens for [profile], and previews in the list: the chat you last
+     * used with it ([saved]) unless the bot has spoken in its main chat since, else its main chat.
+     */
+    fun chatToOpen(
+        profile: ProfileInfo,
+        saved: SavedChat?,
+    ): String? {
+        val canonical =
+            (profile.canonical_session?.resolved_id ?: profile.canonical_session?.id)?.takeIf { it.isNotBlank() }
+        if (saved == null) return canonical
+        if (canonical == null || saved.sessionId == canonical) return saved.sessionId
+        val canonicalAt = profile.canonical_session?.last_active ?: return saved.sessionId
+        return if (saved.at >= canonicalAt) saved.sessionId else canonical
+    }
+
     /** Messages in the bot's main conversation, used to count what's new since you last looked. */
     fun messageCount(profile: ProfileInfo): Int? =
         profile.canonical_session?.message_count ?: profile.last_session?.message_count

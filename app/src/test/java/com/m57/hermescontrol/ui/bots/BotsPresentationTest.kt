@@ -160,4 +160,23 @@ class BotsPresentationTest {
             )
         assertEquals("hi", BotsPresentation.contentText(parts))
     }
+
+    @Test
+    fun `the chat you used last opens unless the bot spoke in its main chat since`() {
+        val ask =
+            ProfileInfo(
+                name = "ask",
+                canonical_session = CanonicalSessionInfo(id = "main", last_active = 1_000.0),
+            )
+        assertEquals("main", BotsPresentation.chatToOpen(ask, null))
+        assertEquals("new", BotsPresentation.chatToOpen(ask, SavedChat("new", 1_200.0)))
+        // A digest landed in the main chat after you left the new one: the main chat opens.
+        assertEquals("main", BotsPresentation.chatToOpen(ask, SavedChat("new", 900.0)))
+        // Saved before times were kept.
+        assertEquals("main", BotsPresentation.chatToOpen(ask, SavedChat("new", 0.0)))
+        assertEquals(
+            "new",
+            BotsPresentation.chatToOpen(ProfileInfo(name = "x"), SavedChat("new", 0.0)),
+        )
+    }
 }
