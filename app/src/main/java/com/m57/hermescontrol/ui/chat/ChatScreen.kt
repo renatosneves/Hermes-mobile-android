@@ -141,6 +141,7 @@ import com.m57.hermescontrol.ui.common.AutoScrollingTitleText
 import com.m57.hermescontrol.ui.common.CredentialWarningBanner
 import com.m57.hermescontrol.ui.common.HermesScaffold
 import com.m57.hermescontrol.ui.common.NavIcon
+import com.m57.hermescontrol.ui.common.TopBarIconButton
 import com.m57.hermescontrol.ui.model.components.ModelPickerDialog
 import com.m57.hermescontrol.ui.settings.SettingsViewModel
 import com.m57.hermescontrol.util.ConnectorUrlValidator
@@ -605,7 +606,7 @@ fun ChatScreen(
             }
         },
         actions = {
-            IconButton(
+            TopBarIconButton(
                 onClick = {
                     VoiceLiveCalls.open(
                         context = context,
@@ -623,7 +624,7 @@ fun ChatScreen(
                     tint = if (ownCall != null) MaterialTheme.colorScheme.primary else LocalContentColor.current,
                 )
             }
-            IconButton(onClick = { viewModel.createNewSession(byUser = true) }) {
+            TopBarIconButton(onClick = { viewModel.createNewSession(byUser = true) }) {
                 Icon(
                     imageVector = Icons.Filled.Add,
                     contentDescription = stringResource(R.string.content_desc_new_chat),
@@ -633,7 +634,7 @@ fun ChatScreen(
             // Session actions overflow menu (issue #1091)
             var showSessionMenu by remember { mutableStateOf(false) }
             Box {
-                IconButton(
+                TopBarIconButton(
                     onClick = {
                         settingsViewModel.refreshKeepConnectedInBackground()
                         showSessionMenu = true

@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
@@ -60,6 +61,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
@@ -70,10 +72,15 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.m57.hermescontrol.R
+import com.m57.hermescontrol.theme.BotsPalette
+import com.m57.hermescontrol.theme.LocalToybox
+import com.m57.hermescontrol.theme.toySticker
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -132,6 +139,10 @@ fun ComposerToolbar(
 ) {
     var showReasoningMenu by remember { mutableStateOf(false) }
     val palette = composerPalette()
+    val toybox = LocalToybox.current
+    // Toybox controls are chunkier stickers.
+    val controlSize = if (toybox) ToyControlSize else ControlSize
+    val onActionColor = if (toybox) BotsPalette.ToyOnAccent else palette.onAction
     val reasoningDisabledForModel = supportsReasoning == false
     val canDisable = canDisableReasoning
 
@@ -220,8 +231,26 @@ fun ComposerToolbar(
         FilledIconButton(
             onClick = onAttachTap,
             enabled = isConnected,
-            colors = flatIconButtonColors(palette),
-            modifier = Modifier.size(ControlSize).testTag("attachment_button"),
+            colors =
+                if (toybox) {
+                    IconButtonDefaults.filledIconButtonColors(
+                        containerColor = Color.Transparent,
+                        contentColor = BotsPalette.ToyOutline,
+                    )
+                } else {
+                    flatIconButtonColors(palette)
+                },
+            shape = if (toybox) RoundedCornerShape(18.dp) else IconButtonDefaults.filledShape,
+            modifier =
+                Modifier
+                    .size(controlSize)
+                    .then(
+                        if (toybox) {
+                            Modifier.toySticker(RoundedCornerShape(18.dp), BotsPalette.ToyYellow, shadow = null)
+                        } else {
+                            Modifier
+                        },
+                    ).testTag("attachment_button"),
         ) {
             Icon(
                 imageVector = Icons.Default.Add,
@@ -244,9 +273,16 @@ fun ComposerToolbar(
                 modifier =
                     Modifier
                         .width(IntrinsicSize.Max)
-                        .height(ControlSize)
-                        .clip(CircleShape)
-                        .background(palette.control),
+                        .height(controlSize)
+                        .then(
+                            if (toybox) {
+                                Modifier
+                                    .toySticker(RoundedCornerShape(18.dp), BotsPalette.ToyInk, shadow = null)
+                                    .clip(RoundedCornerShape(18.dp))
+                            } else {
+                                Modifier.clip(CircleShape).background(palette.control)
+                            },
+                        ),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
@@ -261,8 +297,8 @@ fun ComposerToolbar(
                 ) {
                     Text(
                         text = modelLabel,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = palette.onControl,
+                        style = toyLabelStyle(toybox),
+                        color = if (toybox) BotsPalette.ToyOutline else palette.onControl,
                         maxLines = 1,
                         softWrap = false,
                         overflow = TextOverflow.Clip,
@@ -326,7 +362,7 @@ fun ComposerToolbar(
                                         rLabel
                                     }
                                 },
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = toyLabelStyle(toybox),
                             color = levelColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -515,11 +551,25 @@ fun ComposerToolbar(
             if (canInterrupt) {
                 FilledIconButton(
                     onClick = onStopGeneration,
-                    colors = flatIconButtonColors(palette),
+                    colors =
+                        if (toybox) {
+                            IconButtonDefaults.filledIconButtonColors(
+                                containerColor = Color.Transparent,
+                                contentColor = BotsPalette.ToyOutline,
+                            )
+                        } else {
+                            flatIconButtonColors(palette)
+                        },
                     modifier =
                         Modifier
-                            .size(ControlSize)
-                            .testTag("stop_button"),
+                            .size(controlSize)
+                            .then(
+                                if (toybox) {
+                                    Modifier.toySticker(CircleShape, BotsPalette.ToyInk, shadow = null)
+                                } else {
+                                    Modifier
+                                },
+                            ).testTag("stop_button"),
                 ) {
                     Icon(
                         imageVector = Icons.Default.Stop,
@@ -533,13 +583,22 @@ fun ComposerToolbar(
                 // supplies its own clickable (review, PR #1280). Same
                 // arrangement as the action button below.
                 val micColors = if (isListening) listeningIconButtonColors() else flatIconButtonColors(palette)
+                val micFill =
+                    when {
+                        !isConnected -> micColors.disabledContainerColor
+                        toybox && !isListening -> BotsPalette.ToyInk
+                        else -> micColors.containerColor
+                    }
                 Box(
                     modifier =
                         Modifier
-                            .size(ControlSize)
-                            .clip(CircleShape)
-                            .background(
-                                if (isConnected) micColors.containerColor else micColors.disabledContainerColor,
+                            .size(controlSize)
+                            .then(
+                                if (toybox) {
+                                    Modifier.toySticker(CircleShape, micFill, shadow = null).clip(CircleShape)
+                                } else {
+                                    Modifier.clip(CircleShape).background(micFill)
+                                },
                             ).combinedClickable(
                                 enabled = isConnected,
                                 onClick = onMicTap,
@@ -550,7 +609,12 @@ fun ComposerToolbar(
                     Icon(
                         imageVector = if (isListening) Icons.Default.Stop else Icons.Outlined.Mic,
                         contentDescription = if (isListening) "Stop listening" else "Mic",
-                        tint = if (isConnected) micColors.contentColor else micColors.disabledContentColor,
+                        tint =
+                            when {
+                                !isConnected -> micColors.disabledContentColor
+                                toybox && !isListening -> BotsPalette.ToyOutline
+                                else -> micColors.contentColor
+                            },
                     )
                 }
             }
@@ -571,16 +635,30 @@ fun ComposerToolbar(
             } else {
                 isConnected
             }
+        val actionFill =
+            when {
+                !showSend && isListening -> MaterialTheme.colorScheme.errorContainer
+                toybox -> BotsPalette.ToyTalk
+                else -> palette.action
+            }
         Box(
             modifier =
                 Modifier
-                    .size(if (showSend) 48.dp else ControlSize)
-                    .clip(CircleShape)
-                    .background(
-                        if (!showSend && isListening) {
-                            MaterialTheme.colorScheme.errorContainer
+                    .then(if (toybox) Modifier.padding(end = 3.dp, bottom = 3.dp) else Modifier)
+                    .size(
+                        if (toybox) {
+                            ToyActionSize
+                        } else if (showSend) {
+                            48.dp
                         } else {
-                            palette.action
+                            controlSize
+                        },
+                    ).then(
+                        if (toybox) {
+                            // A big round orange sticker with a 3 dp hard shadow.
+                            Modifier.toySticker(CircleShape, actionFill, depth = 3.dp).clip(CircleShape)
+                        } else {
+                            Modifier.clip(CircleShape).background(actionFill)
                         },
                     ).combinedClickable(
                         enabled = actionEnabled,
@@ -630,7 +708,7 @@ fun ComposerToolbar(
                                 } else {
                                     stringResource(R.string.chat_send_desc)
                                 },
-                            tint = palette.onAction,
+                            tint = onActionColor,
                         )
                     }
 
@@ -647,7 +725,7 @@ fun ComposerToolbar(
                                 if (isListening && !canInterrupt) {
                                     MaterialTheme.colorScheme.onErrorContainer
                                 } else {
-                                    palette.onAction
+                                    onActionColor
                                 },
                         )
                     }
@@ -656,7 +734,7 @@ fun ComposerToolbar(
                         Icon(
                             imageVector = Icons.Outlined.Mic,
                             contentDescription = "Mic",
-                            tint = palette.onAction,
+                            tint = onActionColor,
                         )
                     }
                 }
@@ -666,6 +744,17 @@ fun ComposerToolbar(
 }
 
 private val ControlSize = 36.dp
+private val ToyControlSize = 44.dp
+private val ToyActionSize = 52.dp
+
+/** Chip text: the normal body style, or 14 sp ExtraBold in Toybox. */
+@Composable
+private fun toyLabelStyle(toybox: Boolean): TextStyle =
+    if (toybox) {
+        MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+    } else {
+        MaterialTheme.typography.bodyMedium
+    }
 
 private enum class ActionGlyph { SEND, STOP, VOICE }
 

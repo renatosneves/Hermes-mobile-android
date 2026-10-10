@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.CircularProgressIndicator
@@ -24,9 +26,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.m57.hermescontrol.R
+import com.m57.hermescontrol.theme.BotsPalette
+import com.m57.hermescontrol.theme.LocalToybox
+import com.m57.hermescontrol.theme.toySticker
 import com.m57.hermescontrol.ui.chat.ChatMessage
 import com.m57.hermescontrol.ui.chat.SystemBubble
 import com.m57.hermescontrol.ui.chat.ToolBubble
@@ -93,21 +100,37 @@ internal fun ToolStepsSummary(
 ) {
     val running = steps.lastOrNull { it.isToolRunning }
     val failed = steps.count { it.toolStatus == ToolStatus.FAILED }
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val toybox = LocalToybox.current
+    val muted = if (toybox) BotsPalette.ToyOutline else MaterialTheme.colorScheme.onSurfaceVariant
+    val toyShape = RoundedCornerShape(16.dp)
     Row(
         modifier =
             modifier
                 .padding(horizontal = 16.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .clickable(onClick = onToggle)
-                .heightIn(min = 44.dp)
-                .padding(horizontal = 8.dp)
-                .testTag("tool_steps_summary"),
+                .then(
+                    if (toybox) {
+                        // A yellow tag with a dashed outline.
+                        Modifier
+                            .toySticker(toyShape, BotsPalette.ToyStep, shadow = null, dashed = true)
+                            .clip(toyShape)
+                            .clickable(onClick = onToggle)
+                            .heightIn(min = 44.dp)
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                    } else {
+                        Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(onClick = onToggle)
+                            .heightIn(min = 44.dp)
+                            .padding(horizontal = 8.dp)
+                    },
+                ).testTag("tool_steps_summary"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (running != null) {
             CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = muted)
+        } else if (toybox) {
+            Icon(Icons.Filled.Check, contentDescription = null, tint = muted, modifier = Modifier.size(16.dp))
         } else {
             Icon(Icons.Filled.Build, contentDescription = null, tint = muted, modifier = Modifier.size(14.dp))
         }
@@ -125,14 +148,24 @@ internal fun ToolStepsSummary(
             }
         Text(
             text = text,
-            style = MaterialTheme.typography.labelLarge,
+            style =
+                if (toybox) {
+                    MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
+                } else {
+                    MaterialTheme.typography.labelLarge
+                },
             color = if (failed > 0) MaterialTheme.colorScheme.error else muted,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false),
         )
         Icon(
-            imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+            imageVector =
+                when {
+                    toybox && !expanded -> Icons.Filled.ChevronRight
+                    expanded -> Icons.Filled.ExpandLess
+                    else -> Icons.Filled.ExpandMore
+                },
             contentDescription =
                 stringResource(if (expanded) R.string.tool_steps_hide else R.string.tool_steps_show),
             tint = muted,

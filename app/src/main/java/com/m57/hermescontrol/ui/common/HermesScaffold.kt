@@ -1,5 +1,6 @@
 package com.m57.hermescontrol.ui.common
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
@@ -8,6 +9,8 @@ import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Menu
@@ -16,6 +19,7 @@ import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.TopAppBar
@@ -23,19 +27,31 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.m57.hermescontrol.R
+import com.m57.hermescontrol.theme.BotsPalette
+import com.m57.hermescontrol.theme.LocalToybox
+import com.m57.hermescontrol.theme.toySticker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -158,6 +174,9 @@ fun HermesScaffold(
 ) {
     val gestureController = LocalDrawerGestureController.current
     SideEffect { gestureController?.reconcile(drawerGesturesEnabled) }
+    val toybox = LocalToybox.current
+    val barColor = if (toybox) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
+    val barContentColor = if (toybox) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
 
     val scrollBehavior =
         if (pinTopBar) {
@@ -176,7 +195,7 @@ fun HermesScaffold(
                 navigationIcon = {
                     when (val icon = navigationIcon) {
                         is NavIcon.Back -> {
-                            IconButton(onClick = icon.onBack) {
+                            TopBarIconButton(onClick = icon.onBack) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                     contentDescription = stringResource(R.string.content_desc_back),
@@ -186,7 +205,7 @@ fun HermesScaffold(
                         }
 
                         is NavIcon.Action -> {
-                            IconButton(onClick = icon.onClick) {
+                            TopBarIconButton(onClick = icon.onClick) {
                                 Icon(
                                     imageVector = icon.icon,
                                     contentDescription = icon.description,
@@ -196,7 +215,7 @@ fun HermesScaffold(
                         }
 
                         is NavIcon.Menu -> {
-                            IconButton(onClick = icon.onOpen) {
+                            TopBarIconButton(onClick = icon.onOpen) {
                                 Icon(
                                     imageVector = Icons.Filled.Menu,
                                     contentDescription = stringResource(R.string.content_desc_open_drawer),
@@ -210,7 +229,7 @@ fun HermesScaffold(
                 },
                 actions = {
                     if (onRefresh != null) {
-                        IconButton(onClick = onRefresh) {
+                        TopBarIconButton(onClick = onRefresh) {
                             Icon(
                                 imageVector = Icons.Filled.Refresh,
                                 contentDescription = stringResource(R.string.content_desc_refresh),
@@ -220,10 +239,24 @@ fun HermesScaffold(
                     }
                     actions()
                 },
+                modifier =
+                    if (toybox) {
+                        // A 3 dp dark line under the bar.
+                        Modifier.drawBehind {
+                            val w = 3.dp.toPx()
+                            drawRect(
+                                BotsPalette.ToyOutline,
+                                topLeft = Offset(0f, size.height - w),
+                                size = Size(size.width, w),
+                            )
+                        }
+                    } else {
+                        Modifier
+                    },
                 colors =
                     TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        titleContentColor = MaterialTheme.colorScheme.onSurface,
+                        containerColor = barColor,
+                        titleContentColor = barContentColor,
                         navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
                         actionIconContentColor = MaterialTheme.colorScheme.onSurface,
                     ),
@@ -259,6 +292,35 @@ fun HermesScaffold(
         } else {
             refreshContent()
         }
+    }
+}
+
+/**
+ * A top-bar icon button. Plain everywhere except the Bots screen in Toybox, where it is a 48 dp
+ * white sticker (radius 18, 3 dp shadow).
+ */
+@Composable
+fun TopBarIconButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    if (!LocalToybox.current) {
+        IconButton(onClick = onClick, modifier = modifier) { content() }
+        return
+    }
+    val shape = RoundedCornerShape(18.dp)
+    Box(
+        modifier =
+            modifier
+                .padding(start = 4.dp, end = 7.dp)
+                .size(48.dp)
+                .toySticker(shape, BotsPalette.ToyWhite, depth = 3.dp)
+                .clip(shape)
+                .clickable(role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        CompositionLocalProvider(LocalContentColor provides BotsPalette.ToyOutline, content = content)
     }
 }
 

@@ -64,6 +64,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -73,18 +74,23 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.m57.hermescontrol.R
 import com.m57.hermescontrol.data.model.Attachment
 import com.m57.hermescontrol.data.model.ProfileInfo
 import com.m57.hermescontrol.data.ws.CommandBlocklist
 import com.m57.hermescontrol.data.ws.CommandCatalog
+import com.m57.hermescontrol.theme.BotsPalette
+import com.m57.hermescontrol.theme.LocalToybox
+import com.m57.hermescontrol.theme.toySticker
 import com.m57.hermescontrol.ui.chat.ChatInputPolicy
 import com.m57.hermescontrol.ui.common.BotAvatar
 import com.m57.hermescontrol.util.BidiUtils
@@ -223,6 +229,7 @@ fun ChatInputBar(
     val composerCanInterrupt = if (recording) holdCanInterrupt.value else canInterrupt
 
     val palette = composerPalette()
+    val toybox = LocalToybox.current
     BackHandler(enabled = showAttachmentTray) { showAttachmentTray = false }
 
     Box {
@@ -233,14 +240,26 @@ fun ChatInputBar(
         ) {
             // One floating card holds the whole composer: suggestions, attachments,
             // the input and the controls row. Flat fill, hairline edge, no shadow.
+            val toyShape = RoundedCornerShape(30.dp)
             Surface(
                 modifier =
                     Modifier
+                        .then(if (toybox) Modifier.background(BotsPalette.ToyChatBg) else Modifier)
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                shape = MaterialTheme.shapes.large,
-                color = palette.card,
-                border = BorderStroke(width = 1.dp, color = palette.cardBorder),
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        // The white sticker with a 5 dp hard shadow (the shadow needs room).
+                        .then(
+                            if (toybox) {
+                                Modifier
+                                    .padding(end = 5.dp, bottom = 5.dp)
+                                    .toySticker(toyShape, BotsPalette.ToyWhite, depth = 5.dp)
+                            } else {
+                                Modifier
+                            },
+                        ),
+                shape = if (toybox) toyShape else MaterialTheme.shapes.large,
+                color = if (toybox) Color.Transparent else palette.card,
+                border = if (toybox) null else BorderStroke(width = 1.dp, color = palette.cardBorder),
             ) {
                 Column(modifier = Modifier.padding(top = 8.dp, bottom = 10.dp)) {
                     if (isReceivingContent) {
@@ -426,8 +445,8 @@ fun ChatInputBar(
                                         if (isRecordingVoice) revertAllChanges()
                                     },
                                 textStyle =
-                                    MaterialTheme.typography.bodyLarge.copy(
-                                        color = palette.text,
+                                    toyInputStyle(toybox).copy(
+                                        color = if (toybox) BotsPalette.ToyOutline else palette.text,
                                         textAlign = if (isInputRtl) TextAlign.Right else TextAlign.Left,
                                         textDirection = if (isInputRtl) TextDirection.Rtl else TextDirection.Ltr,
                                     ),
@@ -449,7 +468,7 @@ fun ChatInputBar(
                                             if (inputText.isEmpty() && !isRecordingVoice) {
                                                 Text(
                                                     text = placeholderText,
-                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    style = toyInputStyle(toybox),
                                                     textAlign =
                                                         if (isInputRtl) TextAlign.Right else TextAlign.Left,
                                                     color = palette.placeholder,
@@ -541,6 +560,15 @@ fun ChatInputBar(
         }
     }
 }
+
+/** Input text style: the normal body style, or 17 sp Bold in Toybox. */
+@Composable
+private fun toyInputStyle(toybox: Boolean): TextStyle =
+    if (toybox) {
+        MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold, fontSize = 17.sp)
+    } else {
+        MaterialTheme.typography.bodyLarge
+    }
 
 /**
  * Telegram-style lock affordance floating over the composer while a voice

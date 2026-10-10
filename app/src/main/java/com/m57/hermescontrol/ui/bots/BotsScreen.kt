@@ -112,6 +112,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -150,7 +151,11 @@ import com.m57.hermescontrol.theme.BotsPalette
 import com.m57.hermescontrol.theme.BotsTheme
 import com.m57.hermescontrol.theme.DarkStyle
 import com.m57.hermescontrol.theme.LightStyle
+import com.m57.hermescontrol.theme.LocalToybox
 import com.m57.hermescontrol.theme.ThemePreference
+import com.m57.hermescontrol.theme.ToyFonts
+import com.m57.hermescontrol.theme.toyDots
+import com.m57.hermescontrol.theme.toySticker
 import com.m57.hermescontrol.ui.chat.ChatScreen
 import com.m57.hermescontrol.ui.chat.ChatViewModel
 import com.m57.hermescontrol.ui.chat.MessageRole
@@ -699,29 +704,77 @@ private fun DragDivider(
                 ),
         contentAlignment = Alignment.Center,
     ) {
+        val toy = LocalToybox.current
         Box(
             modifier =
                 Modifier
-                    .width(1.dp)
+                    .width(if (toy) 3.dp else 1.dp)
                     .fillMaxHeight()
                     .background(
-                        Brush.verticalGradient(
-                            0f to Color.Transparent,
-                            0.2f to BotsPalette.Line,
-                            0.8f to BotsPalette.Line,
-                            1f to Color.Transparent,
-                        ),
+                        if (toy) {
+                            SolidColor(BotsPalette.ToyOutline)
+                        } else {
+                            Brush.verticalGradient(
+                                0f to Color.Transparent,
+                                0.2f to BotsPalette.Line,
+                                0.8f to BotsPalette.Line,
+                                1f to Color.Transparent,
+                            )
+                        },
                     ),
         )
+        if (toy) {
+            Box(
+                modifier =
+                    Modifier
+                        .size(width = 9.dp, height = 36.dp)
+                        .toySticker(
+                            RoundedCornerShape(5.dp),
+                            if (dragging) BotsPalette.ToyAccent else BotsPalette.ToyYellow,
+                            shadow = null,
+                            outline = 2.dp,
+                        ),
+            )
+        } else {
+            Box(
+                modifier =
+                    Modifier
+                        .size(width = 4.dp, height = 36.dp)
+                        .background(
+                            if (dragging) BotsPalette.Fg else BotsPalette.Faint.copy(alpha = 0.8f),
+                            RoundedCornerShape(2.dp),
+                        ),
+            )
+        }
+    }
+}
+
+/** A stable tilt for a bot's Toybox tile, from -3 to 3 degrees, taken from its name. */
+private fun toyTilt(name: String): Float = ((name.hashCode() and 0x7fffffff) % 7 - 3).toFloat()
+
+/** A top bar icon button: a plain [IconButton], or in Toybox a 48 dp white sticker. */
+@Composable
+private fun RailIconButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    if (LocalToybox.current) {
+        val shape = RoundedCornerShape(16.dp)
         Box(
             modifier =
-                Modifier
-                    .size(width = 4.dp, height = 36.dp)
-                    .background(
-                        if (dragging) BotsPalette.Fg else BotsPalette.Faint.copy(alpha = 0.8f),
-                        RoundedCornerShape(2.dp),
-                    ),
-        )
+                modifier
+                    .padding(end = 6.dp, bottom = 3.dp)
+                    .size(48.dp)
+                    .toySticker(shape, BotsPalette.ToyOnAccent, depth = 3.dp)
+                    .clip(shape)
+                    .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            content()
+        }
+    } else {
+        IconButton(onClick = onClick, modifier = modifier, content = content)
     }
 }
 
@@ -784,19 +837,27 @@ private fun BotsRail(
         }
     val shownGroups = if (filter == RailFilter.WORKING) emptyList() else groups
 
+    val toy = LocalToybox.current
     Column(
         modifier =
             modifier
-                .background(BotsPalette.Rail)
-                .drawBehind {
-                    drawRect(
-                        Brush.radialGradient(
-                            colors = listOf(BotsPalette.GlowTop, Color.Transparent),
-                            center = Offset(size.width * 0.3f, 0f),
-                            radius = size.width * 0.9f,
-                        ),
-                    )
-                }.statusBarsPadding()
+                .then(
+                    if (toy) {
+                        Modifier.toyDots(BotsPalette.Ink, BotsPalette.ToyDot, 22.dp)
+                    } else {
+                        Modifier
+                            .background(BotsPalette.Rail)
+                            .drawBehind {
+                                drawRect(
+                                    Brush.radialGradient(
+                                        colors = listOf(BotsPalette.GlowTop, Color.Transparent),
+                                        center = Offset(size.width * 0.3f, 0f),
+                                        radius = size.width * 0.9f,
+                                    ),
+                                )
+                            }
+                    },
+                ).statusBarsPadding()
                 .testTag("bots_rail"),
     ) {
         RailHeader(
@@ -929,10 +990,10 @@ private fun BotsRail(
                                 }
                             Column(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).animateItem(),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalArrangement = Arrangement.spacedBy(if (toy) 18.dp else 4.dp),
                             ) {
                                 for (pair in tiles.chunked(2)) {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(if (toy) 18.dp else 4.dp)) {
                                         for (tile in pair) tile(Modifier.weight(1f))
                                         if (pair.size == 1) Spacer(Modifier.weight(1f))
                                     }
@@ -1015,7 +1076,7 @@ private fun RailHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (onOpenDrawer != null) {
-            IconButton(onClick = onOpenDrawer, modifier = Modifier.testTag("menu_button")) {
+            RailIconButton(onClick = onOpenDrawer, modifier = Modifier.testTag("menu_button")) {
                 Icon(
                     Icons.Filled.Menu,
                     contentDescription = stringResource(R.string.content_desc_open_drawer),
@@ -1026,12 +1087,14 @@ private fun RailHeader(
             Spacer(Modifier.width(10.dp))
         }
         Column(modifier = Modifier.weight(1f).padding(start = 2.dp)) {
+            val toy = LocalToybox.current
             Text(
-                text = stringResource(R.string.screen_bots),
+                text = stringResource(if (toy) R.string.bots_toy_title else R.string.screen_bots),
                 color = BotsPalette.Fg,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = (-0.3).sp,
+                fontSize = if (toy) 30.sp else 24.sp,
+                fontFamily = if (toy) ToyFonts.Display else null,
+                fontWeight = if (toy) FontWeight.ExtraBold else FontWeight.Bold,
+                letterSpacing = if (toy) 0.sp else (-0.3).sp,
                 maxLines = 1,
                 softWrap = false,
             )
@@ -1059,7 +1122,7 @@ private fun RailHeader(
                 )
             }
         }
-        IconButton(onClick = onToggleSearch, modifier = Modifier.testTag("bots_action_search")) {
+        RailIconButton(onClick = onToggleSearch, modifier = Modifier.testTag("bots_action_search")) {
             Icon(
                 if (searchOpen) Icons.Filled.Close else Icons.Filled.Search,
                 contentDescription = stringResource(R.string.bots_search_placeholder),
@@ -1067,7 +1130,7 @@ private fun RailHeader(
             )
         }
         Box {
-            IconButton(onClick = { menuOpen = true }, modifier = Modifier.testTag("bots_action_menu")) {
+            RailIconButton(onClick = { menuOpen = true }, modifier = Modifier.testTag("bots_action_menu")) {
                 Icon(
                     Icons.Filled.MoreVert,
                     contentDescription = stringResource(R.string.bots_more),
@@ -1321,29 +1384,54 @@ private fun FilterPill(
     onClick: () -> Unit,
 ) {
     val shape = RoundedCornerShape(999.dp)
+    val toy = LocalToybox.current
     Row(
         modifier =
-            Modifier
-                .clip(shape)
-                .background(if (selected) BotsPalette.Deck2 else Color.Transparent)
-                .border(1.dp, if (selected) BotsPalette.Deck3 else BotsPalette.Line, shape)
-                .combinedClickable(onClick = onClick)
-                .padding(horizontal = 11.dp, vertical = 5.dp),
+            if (toy) {
+                // Selected: dark fill, no shadow; the others are white stickers with a shadow.
+                Modifier
+                    .padding(end = 3.dp, bottom = 3.dp)
+                    .toySticker(
+                        shape,
+                        if (selected) BotsPalette.ToyOutline else BotsPalette.ToyOnAccent,
+                        shadow = if (selected) null else BotsPalette.ToyOutline,
+                        depth = 3.dp,
+                    ).clip(shape)
+                    .combinedClickable(onClick = onClick)
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+            } else {
+                Modifier
+                    .clip(shape)
+                    .background(if (selected) BotsPalette.Deck2 else Color.Transparent)
+                    .border(1.dp, if (selected) BotsPalette.Deck3 else BotsPalette.Line, shape)
+                    .combinedClickable(onClick = onClick)
+                    .padding(horizontal = 11.dp, vertical = 5.dp)
+            },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             label,
-            color = if (selected) BotsPalette.Fg else BotsPalette.Muted,
+            color =
+                when {
+                    toy -> if (selected) BotsPalette.ToyOnAccent else BotsPalette.ToyOutline
+                    selected -> BotsPalette.Fg
+                    else -> BotsPalette.Muted
+                },
             fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = if (toy) FontWeight.ExtraBold else FontWeight.SemiBold,
             maxLines = 1,
         )
         Spacer(Modifier.width(5.dp))
         Text(
             count.toString(),
-            color = if (accent && count > 0) BotsPalette.Ok else BotsPalette.Muted,
+            color =
+                when {
+                    toy -> if (selected) BotsPalette.ToyOnAccent else BotsPalette.ToyOutline
+                    accent && count > 0 -> BotsPalette.Ok
+                    else -> BotsPalette.Muted
+                },
             fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
+            fontWeight = if (toy) FontWeight.ExtraBold else FontWeight.Bold,
         )
     }
 }
@@ -1367,7 +1455,7 @@ private fun SectionLabel(
             text = text,
             color = BotsPalette.Muted,
             fontSize = 15.sp,
-            fontWeight = FontWeight.Medium,
+            fontWeight = if (LocalToybox.current) FontWeight.ExtraBold else FontWeight.Medium,
             letterSpacing = 0.sp,
         )
         if (collapsed != null) {
@@ -1432,6 +1520,9 @@ private fun BotMenu(
     }
 }
 
+/** Size of a pinned bot's Toybox tile. */
+private val TOY_TILE_SIZE = 96.dp
+
 /** The room with every bot, as the first tile of the pinned row. */
 @Composable
 private fun AllBotsTile(
@@ -1450,18 +1541,21 @@ private fun AllBotsTile(
                     .padding(vertical = 8.dp)
                     .testTag("pinned_all_bots"),
         ) {
+            val toy = LocalToybox.current
             BotOrb(
                 initials = "",
                 hue = BotsPalette.Muted,
-                size = 68.dp,
+                size = if (toy) TOY_TILE_SIZE else 68.dp,
                 team = true,
                 imageUrl = GroupPictureStore.get(BotsPresentation.ALL_BOTS_ROOM),
+                tilt = toyTilt(BotsPresentation.ALL_BOTS_ROOM),
             )
             Text(
                 text = stringResource(R.string.bots_all_room),
-                color = BotsPalette.Muted,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
+                color = if (toy) BotsPalette.ToyOutline else BotsPalette.Muted,
+                fontSize = if (toy) 18.sp else 15.sp,
+                fontFamily = if (toy) ToyFonts.Display else null,
+                fontWeight = if (toy) FontWeight.ExtraBold else FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
@@ -1539,6 +1633,7 @@ private fun PinnedBot(
 ) {
     val hue = hueFor(profile)
     val title = profile.effectiveTitle
+    val toy = LocalToybox.current
     var menuOpen by remember { mutableStateOf(false) }
     Box(modifier) {
         Column(
@@ -1554,14 +1649,18 @@ private fun PinnedBot(
                 BotOrb(
                     initials = BotsPresentation.initials(title),
                     hue = hue,
-                    size = 68.dp,
+                    size = if (toy) TOY_TILE_SIZE else 68.dp,
                     working = working,
                     presence = if (BotsPresentation.isRecent(profile, now)) OrbPresence.RECENT else OrbPresence.IDLE,
                     shapeKey = profile.botMeta()?.avatar?.shape,
                     imageUrl = imageUrl,
                     attention = needsYou,
+                    selected = selected,
+                    tilt = toyTilt(profile.name),
                 )
-                if (unread > 0) {
+                if (unread > 0 && toy) {
+                    UnreadBadge(count = unread, hue = hue, modifier = Modifier.align(Alignment.TopStart))
+                } else if (unread > 0) {
                     Box(
                         Modifier
                             .align(Alignment.TopEnd)
@@ -1573,13 +1672,34 @@ private fun PinnedBot(
             }
             Text(
                 text = title,
-                color = if (selected) BotsPalette.Fg else BotsPalette.Muted,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
+                color =
+                    when {
+                        toy -> if (selected) BotsPalette.ToyOnAccent else BotsPalette.ToyOutline
+                        selected -> BotsPalette.Fg
+                        else -> BotsPalette.Muted
+                    },
+                fontSize = if (toy) 18.sp else 15.sp,
+                fontFamily = if (toy) ToyFonts.Display else null,
+                fontWeight = if (toy) FontWeight.ExtraBold else FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 6.dp),
+                modifier =
+                    Modifier
+                        .padding(top = if (toy) 10.dp else 6.dp)
+                        .then(
+                            if (toy && selected) {
+                                Modifier
+                                    .toySticker(
+                                        RoundedCornerShape(999.dp),
+                                        BotsPalette.ToyAccent,
+                                        shadow = null,
+                                        outline = 2.dp,
+                                    ).padding(horizontal = 12.dp, vertical = 1.dp)
+                            } else {
+                                Modifier
+                            },
+                        ),
             )
         }
         BotMenu(
@@ -1618,6 +1738,7 @@ private fun BotRow(
     val time = BotsPresentation.relativeTime(lastAt, now)
     val shape = RoundedCornerShape(14.dp)
     val accent = if (needsYou) BotsPalette.Attention else hue
+    val toy = LocalToybox.current
     var menuOpen by remember { mutableStateOf(false) }
 
     Box(modifier = modifier) {
@@ -1625,24 +1746,54 @@ private fun BotRow(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    // No clip: a picture that breaks out of its orb may spill past the row.
-                    .background(
-                        when {
-                            selected -> Brush.horizontalGradient(listOf(hue.copy(alpha = 0.2f), Color.Transparent))
-                            needsYou -> Brush.horizontalGradient(listOf(accent.copy(alpha = 0.1f), Color.Transparent))
-                            else -> SolidColor(Color.Transparent)
+                    // No clip: a wide picture may spill past the row.
+                    .then(
+                        if (toy) {
+                            // The selected row is a white sticker card.
+                            Modifier
+                                .padding(end = 3.dp, bottom = 3.dp)
+                                .then(
+                                    if (selected) {
+                                        Modifier.toySticker(
+                                            RoundedCornerShape(20.dp),
+                                            BotsPalette.ToyOnAccent,
+                                            depth = 3.dp,
+                                        )
+                                    } else {
+                                        Modifier
+                                    },
+                                )
+                        } else {
+                            Modifier
+                                .background(
+                                    when {
+                                        selected -> {
+                                            Brush.horizontalGradient(listOf(hue.copy(alpha = 0.2f), Color.Transparent))
+                                        }
+
+                                        needsYou -> {
+                                            Brush.horizontalGradient(
+                                                listOf(accent.copy(alpha = 0.1f), Color.Transparent),
+                                            )
+                                        }
+
+                                        else -> {
+                                            SolidColor(Color.Transparent)
+                                        }
+                                    },
+                                    shape,
+                                ).drawBehind {
+                                    if (selected || needsYou) {
+                                        drawRoundRect(
+                                            color = accent,
+                                            topLeft = Offset(0f, 14.dp.toPx()),
+                                            size = Size(3.dp.toPx(), size.height - 28.dp.toPx()),
+                                            cornerRadius = CornerRadius(3.dp.toPx()),
+                                        )
+                                    }
+                                }
                         },
-                        shape,
-                    ).drawBehind {
-                        if (selected || needsYou) {
-                            drawRoundRect(
-                                color = accent,
-                                topLeft = Offset(0f, 14.dp.toPx()),
-                                size = Size(3.dp.toPx(), size.height - 28.dp.toPx()),
-                                cornerRadius = CornerRadius(3.dp.toPx()),
-                            )
-                        }
-                    }.combinedClickable(onClick = onClick, onLongClick = { menuOpen = true })
+                    ).combinedClickable(onClick = onClick, onLongClick = { menuOpen = true })
                     .padding(start = 8.dp, end = 12.dp, top = 10.dp, bottom = 10.dp)
                     .testTag("bot_row_${profile.name}"),
             verticalAlignment = Alignment.CenterVertically,
@@ -1656,6 +1807,7 @@ private fun BotRow(
                 shapeKey = profile.botMeta()?.avatar?.shape,
                 imageUrl = imageUrl,
                 attention = needsYou,
+                selected = selected,
             )
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -1665,8 +1817,9 @@ private fun BotRow(
                         Text(
                             text = title,
                             color = BotsPalette.Fg,
-                            fontSize = 17.sp,
-                            fontWeight = if (unread > 0) FontWeight.Bold else FontWeight.SemiBold,
+                            fontSize = if (toy) 19.sp else 17.sp,
+                            fontFamily = if (toy) ToyFonts.Display else null,
+                            fontWeight = if (toy || unread > 0) FontWeight.ExtraBold else FontWeight.SemiBold,
                             letterSpacing = 0.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -1772,21 +1925,32 @@ private fun BotRow(
 private fun UnreadBadge(
     count: Int,
     hue: Color,
+    modifier: Modifier = Modifier,
 ) {
     val label = BotsPresentation.unreadLabel(count)
     val description = stringResource(R.string.bots_unread, label)
+    val toy = LocalToybox.current
     Box(
         modifier =
-            Modifier
-                .clip(RoundedCornerShape(999.dp))
-                .background(hue)
-                .padding(horizontal = 6.dp, vertical = 1.dp)
+            modifier
+                .then(
+                    if (toy) {
+                        Modifier.toySticker(
+                            RoundedCornerShape(999.dp),
+                            BotsPalette.ToyPink,
+                            shadow = null,
+                            outline = 2.dp,
+                        )
+                    } else {
+                        Modifier.clip(RoundedCornerShape(999.dp)).background(hue)
+                    },
+                ).padding(horizontal = 6.dp, vertical = 1.dp)
                 .semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = label,
-            color = BotsPalette.OnHue,
+            color = if (toy) BotsPalette.ToyOnAccent else BotsPalette.OnHue,
             fontSize = 11.sp,
             fontWeight = FontWeight.ExtraBold,
             maxLines = 1,
@@ -1827,7 +1991,8 @@ private fun GroupRow(
                 group.name,
                 color = BotsPalette.Fg,
                 fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontFamily = if (LocalToybox.current) ToyFonts.Display else null,
+                fontWeight = if (LocalToybox.current) FontWeight.ExtraBold else FontWeight.SemiBold,
                 letterSpacing = 0.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1872,26 +2037,34 @@ private fun BotsChatPane(
 ) {
     val targetHue = profile?.let { hueFor(it) } ?: BotsPalette.Muted
     val hue by animateColorAsState(targetHue, animationSpec = tween(600), label = "pane-hue")
+    val toy = LocalToybox.current
     Box(
         modifier =
             modifier
-                .background(Brush.verticalGradient(listOf(BotsPalette.PaneTop, BotsPalette.PaneBottom)))
-                .drawBehind {
-                    drawRect(
-                        Brush.radialGradient(
-                            colors = listOf(hue.copy(alpha = 0.22f), Color.Transparent),
-                            center = Offset(size.width / 2f, 0f),
-                            radius = size.width * 0.75f,
-                        ),
-                    )
-                    drawRect(
-                        Brush.radialGradient(
-                            colors = listOf(BotsPalette.GlowBottom.copy(alpha = 0.6f), Color.Transparent),
-                            center = Offset(size.width * 0.9f, size.height),
-                            radius = size.width * 0.6f,
-                        ),
-                    )
-                }.testTag("bots_chat_pane"),
+                .then(
+                    if (toy) {
+                        Modifier.toyDots(BotsPalette.ToyChatBg, BotsPalette.ToyChatDot, 20.dp)
+                    } else {
+                        Modifier
+                            .background(Brush.verticalGradient(listOf(BotsPalette.PaneTop, BotsPalette.PaneBottom)))
+                            .drawBehind {
+                                drawRect(
+                                    Brush.radialGradient(
+                                        colors = listOf(hue.copy(alpha = 0.22f), Color.Transparent),
+                                        center = Offset(size.width / 2f, 0f),
+                                        radius = size.width * 0.75f,
+                                    ),
+                                )
+                                drawRect(
+                                    Brush.radialGradient(
+                                        colors = listOf(BotsPalette.GlowBottom.copy(alpha = 0.6f), Color.Transparent),
+                                        center = Offset(size.width * 0.9f, size.height),
+                                        radius = size.width * 0.6f,
+                                    ),
+                                )
+                            }
+                    },
+                ).testTag("bots_chat_pane"),
     ) {
         if (profile == null) {
             Text(
@@ -1996,24 +2169,27 @@ private fun PaneTitle(
     lastAt: Double? = null,
 ) {
     val recent = BotsPresentation.isRecent(profile, now)
+    val toy = LocalToybox.current
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("bots_pane_title")) {
         BotOrb(
             initials = BotsPresentation.initials(profile.effectiveTitle),
             hue = hue,
-            size = 36.dp,
+            size = if (toy) 56.dp else 36.dp,
             working = working,
             shapeKey = profile.botMeta()?.avatar?.shape,
             imageUrl = imageUrl,
             attention = needsYou,
+            tilt = -4f,
         )
         Spacer(Modifier.width(8.dp))
         Column {
             Text(
                 text = profile.effectiveTitle,
                 color = BotsPalette.Fg,
-                fontSize = 19.sp,
+                fontSize = if (toy) 26.sp else 19.sp,
+                fontFamily = if (toy) ToyFonts.Display else null,
                 fontWeight = FontWeight.ExtraBold,
-                letterSpacing = (-0.4).sp,
+                letterSpacing = if (toy) 0.sp else (-0.4).sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -2080,21 +2256,29 @@ private fun StatusPill(
             working -> lerp(hue, BotsPalette.Fg, 0.3f)
             else -> BotsPalette.Muted
         }
+    val toy = LocalToybox.current
     Row(
         modifier =
-            Modifier
-                .padding(top = 2.dp)
-                .clip(shape)
-                .background(BotsPalette.Deck.copy(alpha = 0.8f))
-                .border(
-                    1.dp,
-                    when {
-                        needsYou -> BotsPalette.Attention.copy(alpha = 0.6f)
-                        working -> hue.copy(alpha = 0.45f)
-                        else -> BotsPalette.Line
-                    },
-                    shape,
-                ).padding(horizontal = 7.dp, vertical = 1.dp),
+            if (toy) {
+                Modifier
+                    .padding(top = 2.dp, end = 3.dp, bottom = 3.dp)
+                    .toySticker(shape, BotsPalette.ToyOnAccent, depth = 3.dp, outline = 2.dp)
+                    .padding(horizontal = 8.dp, vertical = 1.dp)
+            } else {
+                Modifier
+                    .padding(top = 2.dp)
+                    .clip(shape)
+                    .background(BotsPalette.Deck.copy(alpha = 0.8f))
+                    .border(
+                        1.dp,
+                        when {
+                            needsYou -> BotsPalette.Attention.copy(alpha = 0.6f)
+                            working -> hue.copy(alpha = 0.45f)
+                            else -> BotsPalette.Line
+                        },
+                        shape,
+                    ).padding(horizontal = 7.dp, vertical = 1.dp)
+            },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -2120,9 +2304,9 @@ private fun StatusPill(
         Spacer(Modifier.width(3.dp))
         Text(
             text = text,
-            color = color,
-            fontSize = 12.5.sp,
-            fontWeight = FontWeight.Medium,
+            color = if (toy) BotsPalette.ToyOutline else color,
+            fontSize = if (toy) 12.sp else 12.5.sp,
+            fontWeight = if (toy) FontWeight.ExtraBold else FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )

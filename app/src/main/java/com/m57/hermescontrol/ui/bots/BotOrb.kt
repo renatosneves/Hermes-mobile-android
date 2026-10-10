@@ -7,11 +7,16 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material3.Icon
@@ -32,10 +37,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -46,7 +53,11 @@ import coil3.request.ImageRequest
 import coil3.request.allowHardware
 import coil3.request.transformations
 import coil3.toBitmap
+import com.m57.hermescontrol.R
 import com.m57.hermescontrol.theme.BotsPalette
+import com.m57.hermescontrol.theme.LocalToybox
+import com.m57.hermescontrol.theme.ToyFonts
+import com.m57.hermescontrol.theme.toySticker
 import com.m57.hermescontrol.ui.common.resolveAvatarShape
 
 enum class OrbPresence { NONE, RECENT, IDLE }
@@ -67,7 +78,13 @@ fun BotOrb(
     shapeKey: String? = null,
     imageUrl: String? = null,
     attention: Boolean = false,
+    selected: Boolean = false,
+    tilt: Float = 0f,
 ) {
+    if (LocalToybox.current) {
+        ToyTile(initials, hue, modifier, size, working, presence, team, imageUrl, attention, selected, tilt)
+        return
+    }
     val shape = remember(shapeKey, size) { resolveAvatarShape(shapeKey, size) }
     // Animated values are read only while drawing, so a spinning ring redraws without recomposing.
     val motion = DecorativeMotion.enabled
@@ -157,30 +174,16 @@ fun BotOrb(
             }
         }
         if (!imageUrl.isNullOrBlank()) {
-            // A picture on a plain or see-through background is lifted off it and drawn a little
-            // larger than the orb, so it breaks out of the circle; any other stays inside it.
-            val context = LocalPlatformContext.current
-            val request =
-                remember(imageUrl) {
-                    ImageRequest
-                        .Builder(context)
-                        .data(imageUrl)
-                        .transformations(AvatarCutoutTransformation())
-                        .allowHardware(false)
-                        .build()
-                }
+            // A picture on a plain or see-through background is shown whole (Fit, never zoomed or
+            // clipped, so nothing is cut); any other fills the orb shape.
+            val request = rememberAvatarRequest(imageUrl)
             var breakout by remember(imageUrl) { mutableStateOf(false) }
             AsyncImage(
                 model = request,
                 contentDescription = null,
                 contentScale = if (breakout) ContentScale.Fit else ContentScale.Crop,
                 onSuccess = { state -> breakout = hasClearCorners(state.result.image.toBitmap()) },
-                modifier =
-                    if (breakout) {
-                        Modifier.requiredSize(size * BREAKOUT_SCALE).offset(y = -size * BREAKOUT_LIFT)
-                    } else {
-                        Modifier.size(size).clip(shape)
-                    },
+                modifier = if (breakout) Modifier.size(size) else Modifier.size(size).clip(shape),
             )
         }
         // Working ring and presence dot sit above the body.
@@ -230,11 +233,142 @@ fun BotOrb(
     }
 }
 
-/** How much larger than its orb a lifted-off picture is drawn. */
-private const val BREAKOUT_SCALE = 1.22f
+@Composable
+private fun rememberAvatarRequest(imageUrl: String): ImageRequest {
+    val context = LocalPlatformContext.current
+    return remember(imageUrl) {
+        ImageRequest
+            .Builder(context)
+            .data(imageUrl)
+            .transformations(AvatarCutoutTransformation())
+            .allowHardware(false)
+            .build()
+    }
+}
 
-/** Raised a touch, so heads and wings rise above the orb rather than spill below it. */
-private const val BREAKOUT_LIFT = 0.06f
+/**
+ * Toybox avatar: a pastel sticker tile (outline, hard shadow) holding the whole picture, fitted
+ * and clipped to the inner corners so nothing is cut. Without a picture it shows the initials.
+ */
+@Composable
+private fun ToyTile(
+    initials: String,
+    hue: Color,
+    modifier: Modifier,
+    size: Dp,
+    working: Boolean,
+    presence: OrbPresence,
+    team: Boolean,
+    imageUrl: String?,
+    attention: Boolean,
+    selected: Boolean,
+    tilt: Float,
+) {
+    val corner = size * 0.25f
+    val tileShape = RoundedCornerShape(corner)
+    val inner = size * 0.075f
+    // Small tiles (member strips, thinking rows) get a lighter outline and shadow.
+    val line = (size * 0.06f).coerceIn(1.5.dp, 3.dp)
+    val depth = (size * 0.07f).coerceIn(2.dp, 4.dp)
+    val innerShape = RoundedCornerShape((corner - inner).coerceAtLeast(2.dp))
+    val pulse: State<Float>? =
+        if (attention && DecorativeMotion.enabled) {
+            rememberInfiniteTransition(label = "tile-attention").animateFloat(
+                initialValue = 0.45f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+                label = "tile-attention-alpha",
+            )
+        } else {
+            null
+        }
+    Box(modifier = modifier.size(size + 10.dp).testTag("bot_orb"), contentAlignment = Alignment.Center) {
+        Box(modifier = Modifier.size(size).graphicsLayer { rotationZ = tilt }) {
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .toySticker(
+                            shape = tileShape,
+                            fill = BotsPalette.toyTile(hue),
+                            shadow = if (selected) BotsPalette.ToyAccent else BotsPalette.ToyOutline,
+                            depth = depth,
+                            outline = line,
+                        ).padding(inner),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (!imageUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = rememberAvatarRequest(imageUrl),
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize().clip(innerShape),
+                    )
+                } else if (team) {
+                    Icon(
+                        imageVector = Icons.Filled.Group,
+                        contentDescription = null,
+                        tint = BotsPalette.ToyOutline,
+                        modifier = Modifier.size(size * 0.5f),
+                    )
+                } else {
+                    val fontSize = with(LocalDensity.current) { (size * 0.36f).toSp() }
+                    Text(
+                        text = initials,
+                        color = BotsPalette.ToyOutline,
+                        fontSize = fontSize,
+                        fontFamily = ToyFonts.Display,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                    )
+                }
+            }
+            if (attention) {
+                Box(
+                    modifier =
+                        Modifier
+                            .requiredSize(size + 6.dp)
+                            .align(Alignment.Center)
+                            .border(
+                                2.dp,
+                                BotsPalette.Attention.copy(alpha = pulse?.value ?: 1f),
+                                RoundedCornerShape(corner + 3.dp),
+                            ),
+                )
+            }
+        }
+        if (working && size >= 40.dp) {
+            Text(
+                text = stringResource(R.string.bots_busy_tag),
+                color = BotsPalette.ToyOutline,
+                fontSize = 9.sp,
+                fontFamily = ToyFonts.Display,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+                modifier =
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 3.dp, y = (-2).dp)
+                        .graphicsLayer { rotationZ = 6f }
+                        .toySticker(RoundedCornerShape(50), BotsPalette.ToyYellow, shadow = null, outline = 1.5.dp)
+                        .padding(horizontal = 5.dp, vertical = 1.dp),
+            )
+        }
+        if (presence != OrbPresence.NONE) {
+            val dot = (size * 0.26f).coerceAtLeast(10.dp)
+            Box(
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .size(dot + line * 2)
+                        .background(
+                            if (presence == OrbPresence.RECENT) BotsPalette.Ok else BotsPalette.Idle,
+                            CircleShape,
+                        ).border(line, BotsPalette.ToyOutline, CircleShape),
+            )
+        }
+    }
+}
 
 private fun hasClearCorners(bitmap: android.graphics.Bitmap): Boolean {
     val w = bitmap.width

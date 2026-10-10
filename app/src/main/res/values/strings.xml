@@ -90,6 +90,8 @@
     <string name="screen_account_connectors">Connectors</string>
     <string name="screen_profiles">Profiles</string>
     <string name="screen_bots">Bots</string>
+    <string name="bots_busy_tag">busy…</string>
+    <string name="bots_toy_title">My crew</string>
     <string name="bots_active_now">Active Now</string>
     <string name="bots_filter_all">All</string>
     <string name="bots_filter_working">Working</string>

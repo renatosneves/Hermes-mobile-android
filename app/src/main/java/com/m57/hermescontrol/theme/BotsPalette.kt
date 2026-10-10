@@ -246,6 +246,16 @@ object BotsPalette {
     /** Text on the Toybox accent. */
     val ToyOnAccent = Color(0xFFFFFFFF)
 
+    /** Toybox white sticker fill (bot bubbles, composer, top-bar buttons). */
+    val ToyWhite = Color(0xFFFFFFFF)
+
+    /** Timestamp and ticks on the Toybox accent: a light lilac. */
+    val ToyOnAccentMuted = Color(0xFFE2DBFF)
+
+    /** Toybox "ink" fill (model picker chip) and the muted timestamp colour on white bubbles. */
+    val ToyInk = Color(0xFFEFEAFF)
+    val ToyMutedText = Color(0xFF5B4F7A)
+
     /** A bot's pastel Toybox tile colour, from its hue. */
     fun toyTile(hue: Color): Color = lerp(hue, ToyOnAccent, 0.74f)
 
