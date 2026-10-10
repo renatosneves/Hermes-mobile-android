@@ -85,15 +85,11 @@ data class BotsUiState(
     val workingFor: Map<String, IncomingHandoff> = emptyMap(),
 ) {
     /**
-     * The session opened, and previewed in the list, for [profile]: the Bot Chat a live hand-off
-     * landed in, else the chat you last used with it.
+     * The session opened, and previewed in the list, for [profile]: the chat you last used with it
+     * unless it has spoken in its main chat since. A hand-off never changes it (its Bot Chat opens
+     * from the hand-off pane), so tapping a bot always lands in that bot's own chat.
      */
-    fun chatFor(
-        profile: ProfileInfo,
-        nowSeconds: Double = System.currentTimeMillis() / 1000.0,
-    ): String? =
-        incomingFor(profile, nowSeconds)?.sessionId
-            ?: BotsPresentation.chatToOpen(profile, savedChats[profile.name])
+    fun chatFor(profile: ProfileInfo): String? = BotsPresentation.chatToOpen(profile, savedChats[profile.name])
 
     /** The hand-off [profile] is working on at [nowSeconds], if it is still live. */
     fun incomingFor(

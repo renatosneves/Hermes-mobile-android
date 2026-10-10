@@ -983,6 +983,7 @@ private fun BotsRail(
                                             add { tileModifier, tileSize ->
                                                 PinnedBot(
                                                     tileSize = tileSize,
+                                                    lastAt = state.lastMessageTime(profile),
                                                     modifier = tileModifier,
                                                     profile = profile,
                                                     now = now,
@@ -1692,6 +1693,7 @@ private fun GroupPictureMenu(
 @Composable
 private fun PinnedBot(
     tileSize: Dp,
+    lastAt: Double?,
     modifier: Modifier,
     profile: ProfileInfo,
     now: Double,
@@ -1724,7 +1726,17 @@ private fun PinnedBot(
                     hue = hue,
                     size = tileSize,
                     working = working,
-                    presence = if (BotsPresentation.isRecent(profile, now)) OrbPresence.RECENT else OrbPresence.IDLE,
+                    presence =
+                        if (BotsPresentation.isRecent(
+                                profile,
+                                now,
+                                lastAt,
+                            )
+                        ) {
+                            OrbPresence.RECENT
+                        } else {
+                            OrbPresence.IDLE
+                        },
                     shapeKey = profile.botMeta()?.avatar?.shape,
                     imageUrl = imageUrl,
                     attention = needsYou,
@@ -1807,7 +1819,7 @@ private fun BotRow(
     lastAt: Double? = null,
 ) {
     val hue = hueFor(profile)
-    val recent = BotsPresentation.isRecent(profile, now)
+    val recent = BotsPresentation.isRecent(profile, now, lastAt)
     val title = profile.effectiveTitle
     val handle = BotsPresentation.distinctHandle(profile.name, title)
     val time = BotsPresentation.relativeTime(lastAt, now)
@@ -2162,6 +2174,8 @@ private fun BotsChatPane(
                 val latestSessionChanged by rememberUpdatedState(onSessionChanged)
                 val requested by rememberUpdatedState(sessionId)
                 LaunchedEffect(chatViewModel, profile.name) {
+                    // The chat still on show when this bot opened is the previous bot's: never file it here.
+                    val previous = chatViewModel.uiState.value.currentSessionId
                     var settled = false
                     var lastId: String? = null
                     var lastSent = 0
@@ -2170,14 +2184,22 @@ private fun BotsChatPane(
                         .distinctUntilChanged()
                         .collect { (current, sent) ->
                             when {
-                                current == null -> Unit
+                                current == null -> {
+                                    Unit
+                                }
 
-                                !settled && (current == requested || requested == null) -> settled = true
+                                !settled && (current == requested || (requested == null && current != previous)) -> {
+                                    settled = true
+                                }
 
-                                !settled -> Unit
+                                !settled -> {
+                                    Unit
+                                }
 
                                 // Another chat, or you wrote in this one: it is the chat to reopen.
-                                current != lastId || sent > lastSent -> latestSessionChanged(profile.name, current)
+                                current != lastId || sent > lastSent -> {
+                                    latestSessionChanged(profile.name, current)
+                                }
                             }
                             if (current != null && settled) {
                                 if (current != lastId) lastSent = sent
@@ -2249,7 +2271,7 @@ private fun PaneTitle(
     task: String? = null,
     lastAt: Double? = null,
 ) {
-    val recent = BotsPresentation.isRecent(profile, now)
+    val recent = BotsPresentation.isRecent(profile, now, lastAt)
     val toy = LocalToybox.current
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("bots_pane_title")) {
         BotOrb(

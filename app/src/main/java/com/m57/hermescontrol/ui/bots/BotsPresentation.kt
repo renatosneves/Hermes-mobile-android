@@ -149,8 +149,11 @@ internal object BotsPresentation {
     fun isRecent(
         profile: ProfileInfo,
         nowSeconds: Double,
+        lastMessageAt: Double? = null,
     ): Boolean {
-        val last = lastActive(profile) ?: return false
+        // The newest of the roster's session times and the chat's last message, so the dot agrees
+        // with the "Active 8m" shown beside it.
+        val last = listOfNotNull(lastActive(profile), lastMessageAt).maxOrNull() ?: return false
         return nowSeconds - last <= RECENT_WINDOW_SECONDS
     }
 
