@@ -205,10 +205,31 @@ sealed class WsEvent {
     data class StatusUpdate(
         val status: String?,
         val data: Map<String, Any?>?,
+        val sessionId: String? = null,
     ) : WsEvent()
 
     data class SessionUpdated(
         val data: Map<String, Any?>?,
+    ) : WsEvent()
+
+    /**
+     * Auto-titling renamed a session (issue #1463). Payload `session_id` is the STORED key, not the
+     * runtime id; [sessionId] is the envelope's runtime id when the gateway sent one.
+     */
+    data class SessionTitle(
+        val storedSessionId: String,
+        val title: String,
+        val sessionId: String? = null,
+    ) : WsEvent()
+
+    /**
+     * The backend reclaimed a live runtime session (idle timeout / LRU / orphan reap), broadcast to
+     * every client (issue #1463). The stored session survives; only [sessionId], the runtime binding, is gone.
+     */
+    data class SessionReclaimed(
+        val sessionId: String?,
+        val storedSessionId: String?,
+        val reason: String?,
     ) : WsEvent()
 
     /**
@@ -443,6 +464,18 @@ sealed class WsEvent {
      */
     data class ReactionEvent(
         val kind: String = "",
+    ) : WsEvent()
+
+    /**
+     * `message.reaction`: the agent (or another client) set/cleared a tapback on a stored
+     * message. [reactions] is the row's full list after the write; [rowId] is the gateway
+     * SQLite row id, matched against `ChatMessage.serverRowId`.
+     */
+    data class MessageReactionUpdated(
+        val rowId: Long,
+        val reactions: List<com.m57.hermescontrol.data.model.MessageReaction>,
+        val role: String,
+        val sessionId: String?,
     ) : WsEvent()
 
     // ── Replay resync (internal) ──────────────────────────────────────────

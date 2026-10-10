@@ -1,5 +1,6 @@
 package com.m57.hermescontrol.data.ws
 
+import com.m57.hermescontrol.data.model.MessageReaction
 import io.mockk.every
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
@@ -873,6 +874,55 @@ class EventParserTest {
         assertEquals(mapOf("session_id" to "sess-1"), (event as WsEvent.SessionUpdated).data)
     }
 
+    private fun pushEvent(
+        type: String,
+        payload: Map<String, Any?>?,
+        envelopeSessionId: String? = null,
+    ): WsEvent {
+        val params = mutableMapOf<String, Any?>("type" to type, "payload" to payload)
+        if (envelopeSessionId != null) params["session_id"] = envelopeSessionId
+        return EventParser.parse(
+            createJsonRpcResponse(jsonrpc = "2.0", id = null, method = "event", params = params),
+        )
+    }
+
+    @Test
+    fun testParseSessionTitle_keepsStoredAndRuntimeIdsSeparate() {
+        val event =
+            pushEvent("session.title", mapOf("session_id" to "stored-1", "title" to " New title "), "runtime-1")
+        assertEquals(WsEvent.SessionTitle("stored-1", "New title", "runtime-1"), event)
+    }
+
+    @Test
+    fun testParseSessionTitle_withoutEnvelopeId_hasNullRuntimeId() {
+        val event = pushEvent("session.title", mapOf("session_id" to "stored-1", "title" to "T"))
+        assertEquals(WsEvent.SessionTitle("stored-1", "T", null), event)
+    }
+
+    @Test
+    fun testParseSessionTitle_missingStoredIdOrTitle_isUnknown() {
+        assertTrue(pushEvent("session.title", mapOf("title" to "T")) is WsEvent.Unknown)
+        assertTrue(pushEvent("session.title", mapOf("session_id" to "stored-1")) is WsEvent.Unknown)
+        assertTrue(pushEvent("session.title", mapOf("session_id" to "stored-1", "title" to " ")) is WsEvent.Unknown)
+        assertTrue(pushEvent("session.title", null) is WsEvent.Unknown)
+    }
+
+    @Test
+    fun testParseSessionReclaimed_carriesBothIdsAndReason() {
+        val event =
+            pushEvent(
+                "session.reclaimed",
+                mapOf("session_id" to "runtime-1", "stored_session_id" to "stored-1", "reason" to "idle_timeout"),
+            )
+        assertEquals(WsEvent.SessionReclaimed("runtime-1", "stored-1", "idle_timeout"), event)
+    }
+
+    @Test
+    fun testParseSessionReclaimed_withoutAnyIdentity_isUnknown() {
+        assertTrue(pushEvent("session.reclaimed", mapOf("reason" to "lru_evict")) is WsEvent.Unknown)
+        assertTrue(pushEvent("session.reclaimed", null) is WsEvent.Unknown)
+    }
+
     @Test
     fun testParseGatewayError_returnsGatewayErrorEvent() {
         val response =
@@ -926,6 +976,52 @@ class EventParserTest {
             "nightly backup",
             (event as WsEvent.BackgroundComplete).data?.get("label"),
         )
+    }
+
+    @Test
+    fun testParseMessageReaction_returnsMessageReactionUpdated() {
+        val response =
+            createJsonRpcResponse(
+                jsonrpc = "2.0",
+                id = null,
+                result = null,
+                error = null,
+                method = "event",
+                params =
+                    mapOf(
+                        "type" to "message.reaction",
+                        "session_id" to "s1",
+                        "payload" to
+                            mapOf(
+                                "row_id" to 42,
+                                "role" to "user",
+                                "reactions" to
+                                    listOf(
+                                        mapOf("emoji" to "\uD83D\uDE02", "author" to "agent", "at" to 1.0),
+                                        mapOf("emoji" to "", "author" to "user"),
+                                    ),
+                            ),
+                    ),
+            )
+        val event = EventParser.parse(response, "") as WsEvent.MessageReactionUpdated
+        assertEquals(42L, event.rowId)
+        assertEquals("user", event.role)
+        assertEquals("s1", event.sessionId)
+        assertEquals(listOf(MessageReaction("\uD83D\uDE02", "agent")), event.reactions)
+    }
+
+    @Test
+    fun testParseMessageReaction_withoutRowId_isUnknown() {
+        val response =
+            createJsonRpcResponse(
+                jsonrpc = "2.0",
+                id = null,
+                result = null,
+                error = null,
+                method = "event",
+                params = mapOf("type" to "message.reaction", "payload" to mapOf("reactions" to emptyList<Any>())),
+            )
+        assertTrue(EventParser.parse(response, "") is WsEvent.Unknown)
     }
 
     @Test

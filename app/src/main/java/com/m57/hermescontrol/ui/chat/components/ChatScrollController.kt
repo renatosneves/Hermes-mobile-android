@@ -12,7 +12,9 @@ import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 
 /**
@@ -71,9 +73,9 @@ class ChatScrollController(
     var bottomPixelTolerance by mutableStateOf(48)
 
     /** Replace the previous scroll command; user gestures can cancel the same job. */
-    private fun launchScroll(block: suspend CoroutineScope.() -> Unit) {
+    private fun launchScroll(block: suspend CoroutineScope.() -> Unit): Job {
         scrollJob?.cancel()
-        scrollJob = scope.launch(block = block)
+        return scope.launch(block = block).also { scrollJob = it }
     }
 
     /** Observe only arrival at the bottom; departures are owned by actual user input. */
@@ -154,10 +156,62 @@ class ChatScrollController(
     }
 
     /** Force-follow to the bottom (session switch / explicit send). Clears unread. */
-    fun jumpToBottom(animated: Boolean = false) {
+    fun jumpToBottom(animated: Boolean = false): Job {
         pendingCount = 0
         isFollowingBottom = true
-        launchScroll { scrollToBottomAwaitingLayout(animated = animated) }
+        return launchScroll { scrollToBottomAwaitingLayout(animated = animated) }
+    }
+
+    /**
+     * Back to where you were reading in this chat. Falls back to the bottom when that row
+     * hasn't loaded or the list has changed under it.
+     */
+    fun restorePosition(position: ChatPaneMemory.Position): Job {
+        pendingCount = 0
+        isFollowingBottom = false
+        return launchScroll {
+            // Wait for the chat's rows (the phone's copy paints first), then a frame to settle.
+            val loaded =
+                withTimeoutOrNull(RESTORE_WAIT_MS) {
+                    snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
+                }
+            if (loaded != null) {
+                yield()
+                if (scrollToRow(position)) return@launchScroll
+            }
+            isFollowingBottom = true
+            scrollToBottomAwaitingLayout()
+        }
+    }
+
+    /**
+     * Rows are found by key. The list may hold more or fewer older rows than when you left, so try
+     * the same place counted from the top, then from the bottom, and settle on the row itself.
+     */
+    private suspend fun scrollToRow(position: ChatPaneMemory.Position): Boolean {
+        val total = listState.layoutInfo.totalItemsCount
+        val fromBottom = total - (position.total - position.index)
+        val candidates = listOf(position.index, fromBottom).filter { it in 0 until total }.distinct()
+        for (candidate in candidates) {
+            listState.scrollToItem(candidate)
+            yield()
+            val row = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == position.key } ?: continue
+            listState.scrollToItem(row.index, position.offset)
+            return true
+        }
+        return false
+    }
+
+    /** Where you are now, or null at the bottom (or with nothing on screen). */
+    fun currentPosition(): ChatPaneMemory.Position? {
+        val first = listState.layoutInfo.visibleItemsInfo.firstOrNull() ?: return null
+        if (listState.isAtBottom(bottomPixelTolerance)) return null
+        return ChatPaneMemory.Position(
+            index = first.index,
+            offset = listState.firstVisibleItemScrollOffset,
+            key = first.key,
+            total = listState.layoutInfo.totalItemsCount,
+        )
     }
 
     /** An explicit history gesture must not be undone by a short list's bottom-follow. */
@@ -281,3 +335,6 @@ fun rememberChatScrollController(
     listState: LazyListState,
     scope: CoroutineScope,
 ): ChatScrollController = remember(listState, scope) { ChatScrollController(listState, scope) }
+
+/** How long a restored chat waits for its rows before settling at the bottom instead. */
+private const val RESTORE_WAIT_MS = 1_500L

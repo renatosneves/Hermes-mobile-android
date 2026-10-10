@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -35,12 +36,14 @@ import com.m57.hermescontrol.theme.LocalChatFontScale
 import com.m57.hermescontrol.ui.chat.ChatMessage
 import com.m57.hermescontrol.ui.chat.ChatSearchState
 import com.m57.hermescontrol.ui.chat.ImageViewerModel
+import com.m57.hermescontrol.ui.chat.PendingSendState
 import com.m57.hermescontrol.ui.chat.SearchTarget
 import com.m57.hermescontrol.ui.chat.ToolCallDivider
 import com.m57.hermescontrol.ui.chat.UserBubble
 import com.m57.hermescontrol.ui.chat.components.ChatHistoryPrefetch
 import com.m57.hermescontrol.ui.chat.components.ChatScrollController
 import com.m57.hermescontrol.ui.chat.components.ClarifyBubble
+import com.m57.hermescontrol.ui.chat.components.MessageReactionChips
 import com.m57.hermescontrol.ui.chat.components.ReasoningCard
 import com.m57.hermescontrol.ui.chat.components.VaultCodeCard
 import com.m57.hermescontrol.ui.chat.components.VaultSaveLoginCard
@@ -55,6 +58,23 @@ private object FullBleedContentType {
     const val TOOL: String = "tool"
     const val SYSTEM_EVENT: String = "system_event"
 }
+
+/** Only show the placeholder when there are no messages or renderable live tail items. */
+internal fun shouldShowChatEmptyState(
+    transcript: TranscriptUiState,
+    hasReplyError: Boolean,
+): Boolean =
+    transcript.messages.isEmpty() &&
+        transcript.streamingState.streamingMessage == null &&
+        !transcript.isLoading &&
+        !transcript.isAgentTyping &&
+        !hasReplyError &&
+        transcript.clarifyRequest == null &&
+        transcript.vaultUnlockPrompt == null &&
+        transcript.vaultSaveLoginPrompt == null &&
+        transcript.vaultCodePrompt == null &&
+        !transcript.isCompressing &&
+        transcript.compressionStatus == null
 
 /**
  * The chat message list for FULL-BLEED style (issue #866) — the single chat
@@ -103,7 +123,7 @@ fun FullBleedChatList(
     val isCompressing = transcript.isCompressing
     val compressionStatus = transcript.compressionStatus
     val speakingMessageId = transcript.speakingMessageId
-    if (messages.isEmpty() && !isLoading && !isAgentTyping && replyErrorContent == null) {
+    if (shouldShowChatEmptyState(transcript, hasReplyError = replyErrorContent != null)) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
@@ -133,6 +153,13 @@ fun FullBleedChatList(
                 if (hiddenPrefixSize > 0) messages.subList(hiddenPrefixSize, messages.size) else messages
             }
         val toolMilestones = remember(renderedMessages) { toolCallMilestones(renderedMessages) }
+        // Tool steps fold into one line per turn; these turns (by first step id) are opened up.
+        val openToolGroups = remember { mutableStateMapOf<String, Boolean>() }
+        // Opened by hand, or holding a search hit.
+        val toolsOpen: ToolsOpen = { groupKey, steps ->
+            openToolGroups[groupKey] == true ||
+                (searchState.isActive && steps.any { it.id in searchState.matchedIds })
+        }
         val settledTurns = remember(renderedMessages) { groupIntoTurns(renderedMessages) }
         val settledIds = remember(renderedMessages) { renderedMessages.mapTo(HashSet()) { it.id } }
         val turns =
@@ -220,7 +247,7 @@ fun FullBleedChatList(
                 val firstVisibleIndex = listState.firstVisibleItemIndex
                 val anchor = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == firstVisibleIndex }
                 if (anchor != null) {
-                    val newIndex = (fullBleedItemKeys(turns) + tailItems.keys).indexOf(anchor.key)
+                    val newIndex = (fullBleedItemKeys(turns, toolsOpen) + tailItems.keys).indexOf(anchor.key)
                     if (newIndex >= 0 && newIndex != anchor.index) {
                         listState.requestScrollToItem(newIndex, listState.firstVisibleItemScrollOffset)
                     }
@@ -267,6 +294,7 @@ fun FullBleedChatList(
             renderedFirstId = renderedMessages.firstOrNull()?.id,
             turns = turns,
             scrollController = scrollController,
+            toolsOpen = toolsOpen,
         )
 
         val currentDensity = LocalDensity.current
@@ -310,7 +338,17 @@ fun FullBleedChatList(
                                             onImageClick = actions.onImageClick,
                                             messageStatsEnabled = messageStatsEnabled,
                                             showUserMessageTokens = showUserMessageTokens,
+                                            pendingSendState = transcript.pendingSendStates[userMessage.id],
                                         )
+                                        if (userMessage.reactions.isNotEmpty()) {
+                                            MessageReactionChips(
+                                                reactions = userMessage.reactions,
+                                                modifier =
+                                                    Modifier
+                                                        .align(Alignment.End)
+                                                        .padding(horizontal = 12.dp),
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -354,7 +392,26 @@ fun FullBleedChatList(
                                         }
                                     }
                                 }
+                                val toolSteps =
+                                    turn.entries.filterIsInstance<AgentEntry.ToolRow>().map { it.message }
+                                val toolGroupKey = toolSteps.firstOrNull()?.id
+                                val stepsShown = toolGroupKey != null && toolsOpen(toolGroupKey, toolSteps)
                                 turn.entries.forEach { entry ->
+                                    if (entry is AgentEntry.ToolRow && entry.message.id == toolGroupKey) {
+                                        item(
+                                            key = "tools-$toolGroupKey",
+                                            contentType = FullBleedContentType.TOOL,
+                                        ) {
+                                            Column(modifier = Modifier.padding(bottom = 6.dp)) {
+                                                ToolStepsSummary(
+                                                    steps = toolSteps,
+                                                    expanded = stepsShown,
+                                                    onToggle = { openToolGroups[toolGroupKey] = !stepsShown },
+                                                )
+                                            }
+                                        }
+                                    }
+                                    if (entry is AgentEntry.ToolRow && !stepsShown) return@forEach
                                     when (entry) {
                                         is AgentEntry.Prose -> {
                                             val proseMessage = entry.message
@@ -551,6 +608,7 @@ private fun renderUserBubble(
     onImageClick: (ImageViewerModel) -> Unit,
     messageStatsEnabled: Boolean,
     showUserMessageTokens: Boolean,
+    pendingSendState: PendingSendState?,
 ) {
     UserBubble(
         message = message,
@@ -564,5 +622,6 @@ private fun renderUserBubble(
         onImageClick = onImageClick,
         messageStatsEnabled = messageStatsEnabled,
         showUserMessageTokens = showUserMessageTokens,
+        pendingSendState = pendingSendState,
     )
 }

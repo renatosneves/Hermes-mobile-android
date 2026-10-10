@@ -1,5 +1,6 @@
 package com.m57.hermescontrol.ui.chat
 
+import com.m57.hermescontrol.data.model.MessageReaction
 import com.m57.hermescontrol.data.model.UsageSnapshotResponse
 import com.m57.hermescontrol.data.ws.WsEvent
 import org.junit.Assert.assertEquals
@@ -9,6 +10,87 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatWsEventReducerTest {
+    @Test
+    fun sessionTitle_updatesChatTitleAndPickerRowForCurrentStoredSession() {
+        val state =
+            ChatUiState(
+                currentSessionId = "stored-1",
+                chatTitle = "Old",
+                sessions = listOf(SessionUi("stored-1", "Old"), SessionUi("stored-2", "Other")),
+            )
+        val result =
+            ChatWsEventReducer.reduce(state, StreamingState(), WsEvent.SessionTitle("stored-1", "New", "rt-1"), "rt-1")
+        assertEquals("New", result.state.chatTitle)
+        assertEquals(listOf("New", "Other"), result.state.sessions.map { it.title })
+    }
+
+    @Test
+    fun sessionTitle_forAnotherSession_renamesOnlyItsPickerRow() {
+        val state =
+            ChatUiState(
+                currentSessionId = "stored-1",
+                chatTitle = "Mine",
+                sessions = listOf(SessionUi("stored-1", "Mine"), SessionUi("stored-2", "Other")),
+            )
+        val result =
+            ChatWsEventReducer.reduce(state, StreamingState(), WsEvent.SessionTitle("stored-2", "Renamed"), "rt-1")
+        assertEquals("Mine", result.state.chatTitle)
+        assertEquals(listOf("Mine", "Renamed"), result.state.sessions.map { it.title })
+    }
+
+    @Test
+    fun sessionTitle_forUnknownSession_isNoOpAndIdempotent() {
+        val state = ChatUiState(currentSessionId = "stored-1", chatTitle = "Mine")
+        val event = WsEvent.SessionTitle("stored-9", "Ghost")
+        val first = ChatWsEventReducer.reduce(state, StreamingState(), event, "rt-1")
+        assertEquals(state, first.state)
+        val current =
+            ChatWsEventReducer.reduce(
+                state,
+                StreamingState(),
+                WsEvent.SessionTitle("stored-1", "Mine"),
+                "rt-1",
+            )
+        assertEquals(state, current.state)
+    }
+
+    @Test
+    fun interruptedIdentitySurvivesDoneButNotANewStart() {
+        val partial = ChatMessage(id = "partial", role = MessageRole.ASSISTANT, content = "old reply")
+        val state = ChatUiState(currentSessionId = "session-1", messages = listOf(partial))
+        val interrupted = StreamingState(interruptedMessage = partial)
+        val done =
+            ChatWsEventReducer.reduce(
+                state,
+                interrupted,
+                WsEvent.MessageDone("session-1"),
+                "session-1",
+            )
+        assertEquals(partial, done.streamingState.interruptedMessage)
+        val started =
+            ChatWsEventReducer.reduce(
+                done.state,
+                done.streamingState,
+                WsEvent.MessageStart("session-1"),
+                "session-1",
+            )
+        assertNull(started.streamingState.interruptedMessage)
+        val complete =
+            ChatWsEventReducer.reduce(
+                started.state,
+                started.streamingState,
+                WsEvent.MessageComplete("new reply", "session-1"),
+                "session-1",
+            )
+        assertEquals(
+            "old reply",
+            complete.state.messages
+                .first()
+                .content,
+        )
+        assertEquals(2, complete.state.messages.count { it.role == MessageRole.ASSISTANT })
+    }
+
     @Test
     fun testMessageComplete_clearsResolvedClarifyRequest() {
         val state =
@@ -1604,5 +1686,61 @@ class ChatWsEventReducerTest {
         assertFalse(result.state.isCompressing)
         assertEquals("idle", result.state.compressionStatus)
         assertEquals(initialMessages, result.state.messages)
+    }
+
+    @Test
+    fun messageReactionPaintsOnlyTheRowWithTheMatchingServerId() {
+        val target = ChatMessage(id = "a", role = MessageRole.USER, content = "hi", serverRowId = 7L)
+        val other = ChatMessage(id = "b", role = MessageRole.ASSISTANT, content = "yo", serverRowId = 8L)
+        val state = ChatUiState(currentSessionId = "s", messages = listOf(target, other))
+        val reactions = listOf(MessageReaction("\u2764\uFE0F", "agent"))
+        val result =
+            ChatWsEventReducer.reduce(
+                state,
+                StreamingState(),
+                WsEvent.MessageReactionUpdated(7L, reactions, "user", "s"),
+                "s",
+            )
+        assertEquals(reactions, result.state.messages[0].reactions)
+        assertTrue(
+            result.state.messages[1]
+                .reactions
+                .isEmpty(),
+        )
+        val retracted =
+            ChatWsEventReducer.reduce(
+                result.state,
+                result.streamingState,
+                WsEvent.MessageReactionUpdated(7L, emptyList(), "user", "s"),
+                "s",
+            )
+        assertTrue(
+            retracted.state.messages[0]
+                .reactions
+                .isEmpty(),
+        )
+    }
+
+    @Test
+    fun messageReactionForUnknownRowOrOtherSessionIsIgnored() {
+        val msg = ChatMessage(id = "a", role = MessageRole.USER, content = "hi", serverRowId = 7L)
+        val state = ChatUiState(currentSessionId = "s", messages = listOf(msg))
+        val reactions = listOf(MessageReaction("\uD83D\uDC4D", "agent"))
+        val unknownRow =
+            ChatWsEventReducer.reduce(
+                state,
+                StreamingState(),
+                WsEvent.MessageReactionUpdated(99L, reactions, "user", "s"),
+                "s",
+            )
+        assertEquals(state, unknownRow.state)
+        val otherSession =
+            ChatWsEventReducer.reduce(
+                state,
+                StreamingState(),
+                WsEvent.MessageReactionUpdated(7L, reactions, "user", "zzz"),
+                "s",
+            )
+        assertEquals(state, otherSession.state)
     }
 }

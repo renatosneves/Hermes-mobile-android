@@ -19,12 +19,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,23 +42,31 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.m57.hermescontrol.R
 import com.m57.hermescontrol.data.model.Attachment
+import com.m57.hermescontrol.theme.BotsPalette
 import com.m57.hermescontrol.theme.DarkOnSurface
 import com.m57.hermescontrol.theme.LightOnSurface
 import com.m57.hermescontrol.theme.LocalHermesStatusColors
+import com.m57.hermescontrol.theme.LocalToybox
+import com.m57.hermescontrol.theme.ToyFonts
+import com.m57.hermescontrol.theme.toySticker
 import com.m57.hermescontrol.ui.chat.components.rememberCopyFeedback
+import com.m57.hermescontrol.ui.chat.tool.ToolJson
 import com.m57.hermescontrol.util.BidiUtils
 import kotlinx.coroutines.launch
 
@@ -81,10 +90,8 @@ fun UserBubble(
     messageStatsEnabled: Boolean = false,
     showUserMessageTokens: Boolean = true,
     modifier: Modifier = Modifier,
+    pendingSendState: PendingSendState? = null,
 ) {
-    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-    val maxBubbleWidth = screenWidth * 0.80f
-
     AnimatedVisibility(
         visible = true,
         enter =
@@ -99,18 +106,36 @@ fun UserBubble(
         var copied by rememberCopyFeedback()
 
         val statusColors = LocalHermesStatusColors.current
+        val deliveryState =
+            when {
+                pendingSendState == PendingSendState.SENDING -> DeliveryState.SENT
 
+                pendingSendState == PendingSendState.ACCEPTED ||
+                    message.canonicalRestId != null || message.serverRowId != null -> DeliveryState.DELIVERED
+
+                else -> null
+            }
+
+        // #1432: also protect cached/legacy rows and unexpectedly large plain-string payloads.
+        // Keep the original content for Copy; only the layout input is bounded.
+        val displayContent =
+            remember(message.content, message.attachments) {
+                // #1432: the path is only hidden when its image renders as an attachment below.
+                val visible =
+                    if (message.attachments.isNullOrEmpty()) message.content else hideImageRefLines(message.content)
+                ToolJson.clampForDisplay(visible)
+            }
         val highlightedText =
-            remember(message.content, searchQuery, isCurrentMatch, statusColors) {
+            remember(displayContent, searchQuery, isCurrentMatch, statusColors) {
                 if (searchQuery.isNotBlank()) {
                     buildHighlightedString(
-                        message.content,
+                        displayContent,
                         searchQuery,
                         isCurrentMatch,
                         statusColors,
                     )
                 } else {
-                    AnnotatedString(message.content)
+                    AnnotatedString(displayContent)
                 }
             }
         Box(
@@ -120,9 +145,12 @@ fun UserBubble(
                     .padding(horizontal = 8.dp, vertical = 2.dp),
             contentAlignment = Alignment.CenterEnd,
         ) {
-            val primary = MaterialTheme.colorScheme.primary
+            val toybox = LocalToybox.current
+            val primary = if (toybox) BotsPalette.ToyAccent else MaterialTheme.colorScheme.primary
             val userBubbleTextColor =
-                if (primary.luminance() > 0.5f) {
+                if (toybox) {
+                    BotsPalette.ToyOnAccent
+                } else if (primary.luminance() > 0.5f) {
                     if (MaterialTheme.colorScheme.onPrimary.luminance() < 0.5f) {
                         MaterialTheme.colorScheme.onPrimary
                     } else {
@@ -135,33 +163,53 @@ fun UserBubble(
                         DarkOnSurface
                     }
                 }
-            Box {
+            val mutedColor = if (toybox) BotsPalette.ToyOnAccentMuted else userBubbleTextColor.copy(alpha = 0.6f)
+            val toyShape = RoundedCornerShape(24.dp, 24.dp, 6.dp, 24.dp)
+            Box(modifier = if (toybox) Modifier.padding(end = 4.dp, bottom = 4.dp) else Modifier) {
                 Surface(
                     modifier =
                         Modifier
-                            .widthIn(max = maxBubbleWidth)
-                            .clip(
-                                RoundedCornerShape(
-                                    topStart = 16.dp,
-                                    topEnd = 16.dp,
-                                    bottomStart = 16.dp,
-                                    bottomEnd = 4.dp,
-                                ),
-                            ).background(color = primary)
-                            .testTag("chat_bubble_user"),
+                            // A share of the chat's own width, not the screen's, so the bubble fills
+                            // a side pane or a wide unfolded screen the way the replies do.
+                            .layout { measurable, constraints ->
+                                val max = (constraints.maxWidth * BUBBLE_WIDTH_FRACTION).toInt()
+                                val placeable = measurable.measure(constraints.copy(minWidth = 0, maxWidth = max))
+                                layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+                            }.then(
+                                if (toybox) {
+                                    Modifier.toySticker(toyShape, primary).clip(toyShape)
+                                } else {
+                                    Modifier
+                                        .clip(
+                                            RoundedCornerShape(
+                                                topStart = 16.dp,
+                                                topEnd = 16.dp,
+                                                bottomStart = 16.dp,
+                                                bottomEnd = 4.dp,
+                                            ),
+                                        ).background(color = primary)
+                                },
+                            ).testTag("chat_bubble_user"),
                     color = Color.Transparent,
                     tonalElevation = 0.dp,
                 ) {
-                    val isRtl = remember(message.content) { BidiUtils.isRtlText(message.content) }
+                    val isRtl = remember(displayContent) { BidiUtils.isRtlText(displayContent) }
                     val bubbleDirection = if (isRtl) LayoutDirection.Rtl else LocalLayoutDirection.current
                     CompositionLocalProvider(LocalLayoutDirection provides bubbleDirection) {
-                        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                        Column(
+                            modifier =
+                                if (toybox) {
+                                    Modifier.padding(horizontal = 18.dp, vertical = 14.dp)
+                                } else {
+                                    Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                },
+                        ) {
                             SelectionContainer {
                                 Text(
                                     text = highlightedText,
                                     color = userBubbleTextColor,
                                     style =
-                                        MaterialTheme.typography.bodyMedium.copy(
+                                        userTextStyle(toybox).copy(
                                             textDirection =
                                                 if (isRtl) {
                                                     TextDirection.Rtl
@@ -174,6 +222,8 @@ fun UserBubble(
                             // Render inline attachments
                             InlineAttachmentList(
                                 attachments = message.attachments,
+                                diagnosticId = ChatImageDiagnostics.rowKey(message.id),
+                                frameKeyPrefix = message.id,
                                 textColor = userBubbleTextColor,
                                 onOpen = onOpenAttachment,
                                 onSave = onSaveAttachment,
@@ -215,8 +265,20 @@ fun UserBubble(
                                                 message.timestamp,
                                                 DateFormat.is24HourFormat(LocalContext.current),
                                             ),
-                                        color = userBubbleTextColor.copy(alpha = 0.6f),
-                                        style = MaterialTheme.typography.labelSmall,
+                                        color = mutedColor,
+                                        style =
+                                            if (toybox) {
+                                                MaterialTheme.typography.labelSmall.copy(
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                )
+                                            } else {
+                                                MaterialTheme.typography.labelSmall
+                                            },
+                                    )
+                                    DeliveryChecks(
+                                        state = deliveryState,
+                                        tint = if (toybox) BotsPalette.ToyOnAccentMuted else userBubbleTextColor,
+                                        messageId = message.id,
                                     )
                                     if (messageStatsEnabled && showUserMessageTokens &&
                                         message.tokenCount != null && message.tokenCount > 0
@@ -249,4 +311,41 @@ fun UserBubble(
             }
         }
     }
+}
+
+/** Message text: the body style, or 16 sp Bold Nunito in Toybox. */
+@Composable
+private fun userTextStyle(toybox: Boolean): TextStyle =
+    if (toybox) {
+        MaterialTheme.typography.bodyMedium.copy(
+            fontFamily = ToyFonts.Body,
+            fontSize = 16.sp,
+            lineHeight = 23.sp,
+            fontWeight = FontWeight.Bold,
+        )
+    } else {
+        MaterialTheme.typography.bodyMedium
+    }
+
+private const val BUBBLE_WIDTH_FRACTION = 0.88f
+
+/** WhatsApp-style delivery ticks: one dim check while sending, two once the server has the prompt. */
+private enum class DeliveryState { SENT, DELIVERED }
+
+@Composable
+private fun DeliveryChecks(
+    state: DeliveryState?,
+    tint: Color,
+    messageId: String,
+) {
+    if (state == null) return
+    val delivered = state == DeliveryState.DELIVERED
+    Spacer(modifier = Modifier.width(4.dp))
+    Icon(
+        imageVector = if (delivered) Icons.Filled.DoneAll else Icons.Filled.Done,
+        contentDescription =
+            stringResource(if (delivered) R.string.chat_send_accepted else R.string.chat_pending_sending),
+        modifier = Modifier.size(14.dp).testTag("user_send_status_$messageId"),
+        tint = tint.copy(alpha = if (delivered) 1f else 0.6f),
+    )
 }

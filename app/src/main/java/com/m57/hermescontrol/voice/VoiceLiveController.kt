@@ -1,6 +1,7 @@
 package com.m57.hermescontrol.voice
 
 import android.content.Context
+import com.m57.hermescontrol.diagnostics.FreezeReporter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -24,7 +25,17 @@ data class VoiceLiveUi(
     val message: String? = null,
     /** Tool Hermes is running for the current request, if any. */
     val working: String? = null,
+    /** Hermes stopped to ask you something (an approval, a question); answered on screen. */
+    val ask: VoiceAsk? = null,
 )
+
+/** Something Hermes needs from you before it can carry on with a spoken request. */
+data class VoiceAsk(
+    val kind: Kind,
+    val text: String,
+) {
+    enum class Kind { APPROVAL, QUESTION, SECRET }
+}
 
 /** Hermes' answer to the current request, as it streams. */
 data class VoiceReply(
@@ -57,6 +68,9 @@ interface VoiceLiveHost {
     fun replySince(sinceMs: Long): VoiceReply?
 
     fun activeTool(): String?
+
+    /** An approval, question or secret the bot is waiting on, if any. */
+    fun pendingAsk(): VoiceAsk?
 }
 
 /**
@@ -68,6 +82,8 @@ class VoiceLiveController(
     private val context: Context,
     private val scope: CoroutineScope,
     private val host: VoiceLiveHost,
+    /** Who the voice speaks as, added to its instructions once the session is up. */
+    private val persona: String? = null,
 ) {
     private val _ui = MutableStateFlow(VoiceLiveUi())
     val ui: StateFlow<VoiceLiveUi> = _ui.asStateFlow()
@@ -85,8 +101,16 @@ class VoiceLiveController(
 
     @Volatile private var speaking = false
 
+    private var started = false
+
+    /** Starts the call unless it already started (a screen coming back after a fold). */
+    fun startIfIdle() {
+        if (!started) start()
+    }
+
     /** Checks the server can run GPT-Live, then connects. */
     fun start() {
+        started = true
         scope.launch {
             _ui.update { VoiceLiveUi(phase = VoiceLivePhase.CHECKING) }
             val (available, reason) = runCatching { host.checkAvailable() }.getOrElse { false to it.message }
@@ -115,6 +139,7 @@ class VoiceLiveController(
 
     fun toggleMute() {
         val muted = !_ui.value.muted
+        FreezeReporter.note("Mute tapped: muted=$muted, transport=${transport != null}")
         transport?.setMuted(muted)
         _ui.update { it.copy(muted = muted) }
     }
@@ -162,7 +187,8 @@ class VoiceLiveController(
         _ui.update { it.copy(phase = phase) }
     }
 
-    private fun onDelegation(id: String) {
+    private fun handleDelegation(id: String) {
+        FreezeReporter.note("Delegation $id")
         val session = transport ?: return
         val (prompt, voiceContext) = VoiceLivePlanner.delegationPrompt(VoiceLivePlanner.contextWindow(transcript))
         if (prompt.isNotBlank() && VoiceLivePlanner.isStopCommand(prompt)) {
@@ -174,12 +200,15 @@ class VoiceLiveController(
         delegationId = id
         refreshPhase()
         val submittedAt = System.currentTimeMillis()
+        FreezeReporter.note("Submitting ${prompt.length} chars to the bot")
         runCatching { host.submit(prompt, voiceContext) }.onFailure {
+            FreezeReporter.note("Submit failed: $it")
             session.speak(id, "Sorry, I could not reach Hermes for that request.")
             delegationId = null
             refreshPhase()
             return
         }
+        FreezeReporter.note("Submitted; following the reply")
         feedReply(session, id, submittedAt)
     }
 
@@ -195,8 +224,33 @@ class VoiceLiveController(
                 var spokenReplyId: String? = null
                 var spokenLength = 0
                 var lastTool: String? = null
+                var lastAsk: VoiceAsk? = null
+                var lastText: String? = null
+                var spoken = ""
                 var observed = false
+                var settleFrom = submittedAt
                 while (isActive && delegationId == id && transport === session) {
+                    // Waiting on you (an approval, a question): say so, show it, and keep waiting.
+                    val ask = host.pendingAsk()
+                    if (ask != lastAsk) {
+                        if (ask != null) {
+                            session.think(
+                                id,
+                                "The agent is paused waiting for the user: ${ask.text.take(300)}. " +
+                                    "Tell the user briefly what it needs; they answer on their screen.",
+                            )
+                        } else {
+                            // Answered: the turn resumes, so the reply gets a fresh grace period.
+                            observed = false
+                            settleFrom = System.currentTimeMillis()
+                        }
+                        lastAsk = ask
+                        _ui.update { it.copy(ask = ask) }
+                    }
+                    if (ask != null) {
+                        delay(FEED_TICK_MS)
+                        continue
+                    }
                     if (host.isBusy()) observed = true
                     val tool = host.activeTool()
                     if (tool != null && tool != lastTool) {
@@ -210,8 +264,14 @@ class VoiceLiveController(
                         if (reply.id != spokenReplyId) {
                             spokenReplyId = reply.id
                             spokenLength = 0
+                            lastText = null
                         }
-                        val spoken = VoiceLivePlanner.speakable(reply.text)
+                        // Only re-clean the text when it grew: a long reply would otherwise be
+                        // re-parsed on the main thread five times a second.
+                        if (reply.text != lastText) {
+                            lastText = reply.text
+                            spoken = VoiceLivePlanner.speakable(reply.text)
+                        }
                         if (reply.pending || host.isBusy()) {
                             val boundary = spoken.lastIndexOf(". ", spoken.length - 2)
                             if (boundary + 1 > spokenLength) {
@@ -223,22 +283,26 @@ class VoiceLiveController(
                             break
                         }
                     } else if (!host.isBusy() &&
-                        (observed || System.currentTimeMillis() - submittedAt > SUBMIT_SETTLE_GRACE_MS)
+                        (observed || System.currentTimeMillis() - settleFrom > SUBMIT_SETTLE_GRACE_MS)
                     ) {
                         session.think(id, "Hermes finished that request without a spoken result.")
                         break
                     }
                     delay(FEED_TICK_MS)
                 }
+                FreezeReporter.note("Reply feed for $id finished")
                 if (delegationId == id) delegationId = null
-                _ui.update { it.copy(working = null) }
+                _ui.update { it.copy(working = null, ask = null) }
                 refreshPhase()
             }
     }
 
     private inner class Listener : VoiceLiveListener {
         override fun onStarted() {
-            scope.launch { refreshPhase() }
+            scope.launch {
+                persona?.let { transport?.instruct(it) }
+                refreshPhase()
+            }
         }
 
         override fun onTranscript(fragment: LiveTranscriptFragment) {
@@ -249,7 +313,9 @@ class VoiceLiveController(
                     val last = transcript.getOrNull(transcript.size - 2)
                     _ui.update {
                         it.copy(
-                            userCaption = if (last?.fromUser == true) it.userCaption + fragment.text else fragment.text,
+                            userCaption =
+                                (if (last?.fromUser == true) it.userCaption + fragment.text else fragment.text)
+                                    .takeLast(CAPTION_MAX_CHARS),
                         )
                     }
                     // Judge a spoken "stop" once the utterance settles ("stop the container" is a request).
@@ -267,13 +333,8 @@ class VoiceLiveController(
                     _ui.update {
                         it.copy(
                             voiceCaption =
-                                if (last?.fromUser ==
-                                    false
-                                ) {
-                                    it.voiceCaption + fragment.text
-                                } else {
-                                    fragment.text
-                                },
+                                (if (last?.fromUser == false) it.voiceCaption + fragment.text else fragment.text)
+                                    .takeLast(CAPTION_MAX_CHARS),
                         )
                     }
                 }
@@ -281,7 +342,7 @@ class VoiceLiveController(
         }
 
         override fun onDelegation(delegationId: String) {
-            scope.launch { onDelegation(delegationId) }
+            scope.launch { handleDelegation(delegationId) }
         }
 
         override fun onSpeakingChange(speaking: Boolean) {
@@ -292,6 +353,7 @@ class VoiceLiveController(
         }
 
         override fun onError(message: String) {
+            FreezeReporter.note("Voice error: $message")
             scope.launch { _ui.update { it.copy(message = message) } }
         }
 
@@ -299,6 +361,7 @@ class VoiceLiveController(
             reason: String,
             usageSeconds: Double?,
         ) {
+            FreezeReporter.note("Voice closed: $reason")
             scope.launch {
                 transport = null
                 closing = null
@@ -325,5 +388,6 @@ class VoiceLiveController(
         const val FEED_TICK_MS = 200L
         const val SUBMIT_SETTLE_GRACE_MS = 15_000L
         const val UTTERANCE_SETTLE_MS = 1_500L
+        const val CAPTION_MAX_CHARS = 600
     }
 }

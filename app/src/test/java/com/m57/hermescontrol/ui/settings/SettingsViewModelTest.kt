@@ -11,6 +11,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockkObject
+import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
@@ -93,6 +94,8 @@ class SettingsViewModelTest {
         every { AuthManager.isTokensPerSecondEnabled() } returns true
         every { AuthManager.isModelProviderShown() } returns false
         every { AuthManager.isKeepConnectedInBackground() } returns false
+        every { AuthManager.isNotifySessionCompletions() } returns false
+        every { AuthManager.setNotifySessionCompletions(any()) } returns Unit
         every { AuthManager.getConnectionProfiles() } returns emptyList()
         every { AuthManager.getSelectedProfileId() } answers { storedSelectedProfileId }
         every { AuthManager.baseUrl() } returns "http://127.0.0.1:9119/"
@@ -125,6 +128,10 @@ class SettingsViewModelTest {
         // so loadSettings() observes the new selection.
         mockkObject(ProfileSwitchCoordinator)
         coEvery { ProfileSwitchCoordinator.switchConnectionProfile(any()) } answers {
+            storedSelectedProfileId = firstArg()
+            Unit
+        }
+        coEvery { ProfileSwitchCoordinator.prepareConnectionProfile(any()) } answers {
             storedSelectedProfileId = firstArg()
             Unit
         }
@@ -310,6 +317,8 @@ class SettingsViewModelTest {
     @Test
     fun testSaveProfileFromDialog_addsNewProfileAndTriggersLoginRedirection() {
         every { AuthManager.getConnectionProfiles() } returns emptyList()
+        val savedProfiles = slot<List<ConnectionProfile>>()
+        every { AuthManager.saveConnectionProfiles(capture(savedProfiles)) } returns Unit
         val viewModel = createViewModel()
 
         viewModel.openAddProfile()
@@ -320,8 +329,29 @@ class SettingsViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         verify { AuthManager.saveConnectionProfiles(any()) }
-        verify { AuthManager.setSelectedProfileId(any()) }
+        verify { AuthManager.setProfileToken(savedProfiles.captured.single().id, "") }
+        assertEquals("token", savedProfiles.captured.single().wsAuthParam)
         assertEquals(true, viewModel.uiState.value.navigateToLogin)
+    }
+
+    @Test
+    fun testSaveProfileFromDialog_activeEditPreparesConnectionAndInactiveEditDoesNotDial() {
+        every { AuthManager.getConnectionProfiles() } returns testProfiles
+        storedSelectedProfileId = "prof-1"
+        val viewModel = createViewModel()
+
+        viewModel.openEditProfile("prof-1")
+        viewModel.onDialogProfileNameChange("Work LAN")
+        viewModel.saveProfileFromDialog()
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify { ProfileSwitchCoordinator.switchConnectionProfile("prof-1") }
+
+        io.mockk.clearMocks(ProfileSwitchCoordinator, answers = false)
+        viewModel.openEditProfile("prof-2")
+        viewModel.onDialogProfileNameChange("Home LAN")
+        viewModel.saveProfileFromDialog()
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) { ProfileSwitchCoordinator.switchConnectionProfile(any()) }
     }
 
     @Test

@@ -3,6 +3,10 @@ package com.m57.hermescontrol.ui.bots
 import com.m57.hermescontrol.data.model.CanonicalSessionInfo
 import com.m57.hermescontrol.data.model.ProfileInfo
 import com.m57.hermescontrol.data.model.ProfileWorkerSummary
+import com.m57.hermescontrol.data.model.SessionMessage
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -46,6 +50,27 @@ class BotsPresentationTest {
         assertTrue(BotsPresentation.isRecent(recent, now))
         assertFalse(BotsPresentation.isRecent(quiet, now))
         assertFalse(BotsPresentation.isWorking(quiet, now))
+    }
+
+    @Test
+    fun `live status beats recent activity`() {
+        val now = 10_000.0
+        val justFinished =
+            ProfileInfo(name = "cos", canonical_session = CanonicalSessionInfo(id = "s", last_active = now - 10))
+        // Touched 10 s ago, but Hermes says the chat is idle: not working.
+        assertFalse(BotsPresentation.isWorking(justFinished, now, mapOf("s" to "idle")))
+        // A long tool call with no new message for minutes: still working.
+        val longTool =
+            ProfileInfo(name = "cos", canonical_session = CanonicalSessionInfo(id = "s", last_active = now - 600))
+        assertTrue(BotsPresentation.isWorking(longTool, now, mapOf("s" to "working")))
+        // An idle chat here doesn't hide a Kanban worker running elsewhere.
+        val worker =
+            ProfileInfo(
+                name = "web",
+                canonical_session = CanonicalSessionInfo(id = "s", last_active = now - 5),
+                worker_session = ProfileWorkerSummary(id = "w", last_active = now - 20),
+            )
+        assertTrue(BotsPresentation.isWorking(worker, now, mapOf("s" to "idle")))
     }
 
     @Test
@@ -99,5 +124,59 @@ class BotsPresentationTest {
         assertTrue(prompt.contains("\"Inbox\""))
         assertTrue(prompt.contains("Gmail triage summaries"))
         assertTrue(prompt.contains("no text"))
+    }
+
+    @Test
+    fun `handle shows only when it differs from the title`() {
+        assertEquals(null, BotsPresentation.distinctHandle("work", "Work"))
+        assertEquals(null, BotsPresentation.distinctHandle("chief-of-staff", "Chief of Staff"))
+        assertEquals("@default", BotsPresentation.distinctHandle("default", "CEO"))
+    }
+
+    @Test
+    fun `preview shows the latest line and marks your own`() {
+        val messages =
+            listOf(
+                SessionMessage(role = "user", content = JsonPrimitive("Make the **deck**")),
+                SessionMessage(
+                    role = "assistant",
+                    content = JsonPrimitive("Done: [the deck](https://x.y)\n\nIt has one slide."),
+                ),
+                SessionMessage(role = "tool", content = JsonPrimitive("{}")),
+            )
+        assertEquals("Done: the deck It has one slide.", BotsPresentation.latestPreview(messages))
+        assertEquals("You: Make the deck", BotsPresentation.latestPreview(messages.take(1)))
+        assertEquals(null, BotsPresentation.latestPreview(emptyList()))
+    }
+
+    @Test
+    fun `content text reads text parts of a list`() {
+        val parts =
+            JsonArray(
+                listOf(
+                    JsonObject(mapOf("type" to JsonPrimitive("text"), "text" to JsonPrimitive("hi"))),
+                    JsonObject(mapOf("type" to JsonPrimitive("image_url"))),
+                ),
+            )
+        assertEquals("hi", BotsPresentation.contentText(parts))
+    }
+
+    @Test
+    fun `the chat you used last opens unless the bot spoke in its main chat since`() {
+        val ask =
+            ProfileInfo(
+                name = "ask",
+                canonical_session = CanonicalSessionInfo(id = "main", last_active = 1_000.0),
+            )
+        assertEquals("main", BotsPresentation.chatToOpen(ask, null))
+        assertEquals("new", BotsPresentation.chatToOpen(ask, SavedChat("new", 1_200.0)))
+        // A digest landed in the main chat after you left the new one: the main chat opens.
+        assertEquals("main", BotsPresentation.chatToOpen(ask, SavedChat("new", 900.0)))
+        // Saved before times were kept.
+        assertEquals("main", BotsPresentation.chatToOpen(ask, SavedChat("new", 0.0)))
+        assertEquals(
+            "new",
+            BotsPresentation.chatToOpen(ProfileInfo(name = "x"), SavedChat("new", 0.0)),
+        )
     }
 }

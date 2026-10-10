@@ -103,7 +103,22 @@ android {
             buildConfigField("boolean", "ALLOW_CLEARTEXT", "true")
             manifestPlaceholders["usesCleartextTraffic"] = "true"
         }
+
+        // Optimised test builds: R8-shrunk and non-debuggable like release, but the same
+        // .dev package and debug signature as the dev builds, so they install over them
+        // and keep your sign-in and data.
+        create("beta") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+            signingConfig = signingConfigs["debug"]
+            isDebuggable = false
+            isProfileable = true
+            matchingFallbacks += listOf("release")
+        }
     }
+    // Shares the dev builds' "Hermes Dev" name and icon labels.
+    sourceSets["beta"].res.srcDirs("src/debug/res")
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
@@ -231,6 +246,7 @@ dependencies {
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.espresso.core)
     androidTestImplementation(libs.mockk.android)
+    androidTestImplementation(libs.okhttp.mockwebserver)
 
     // Navigation
     implementation(libs.androidx.navigation3.ui)
@@ -287,7 +303,8 @@ tasks.register("checkColorLiterals") {
     doLast {
         val offenders = mutableListOf<Pair<String, Int>>()
         srcDir.asFile.walkTopDown().filter { it.isFile && it.extension == "kt" }.forEach { file ->
-            if (exemptions.any { file.absolutePath.contains(it) }) return@forEach
+            // Issue #622: normalize Windows separators before checking path exemptions.
+            if (exemptions.any { file.invariantSeparatorsPath.contains(it) }) return@forEach
             file.useLines { lines ->
                 lines.forEachIndexed { idx, raw ->
                     val line = raw.trim()

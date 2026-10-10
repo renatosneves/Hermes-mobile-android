@@ -1,6 +1,11 @@
 package com.m57.hermescontrol.ui.bots
 
 import com.m57.hermescontrol.data.model.ProfileInfo
+import com.m57.hermescontrol.data.model.SessionMessage
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.TextStyle
@@ -112,19 +117,43 @@ internal object BotsPresentation {
             profile.last_session?.last_active,
         ).maxOrNull()
 
+    /**
+     * Whether the bot is doing something right now. Sessions Hermes reports live ([live]: session
+     * key to "working" / "starting" / "waiting" / "idle") are taken at their word, so a chat that
+     * finished a moment ago no longer shows as working. Sessions running elsewhere (Telegram,
+     * Kanban workers) fall back to "touched in the last [WORKING_WINDOW_SECONDS]".
+     */
     fun isWorking(
         profile: ProfileInfo,
         nowSeconds: Double,
+        live: Map<String, String> = emptyMap(),
     ): Boolean {
-        val last = lastActive(profile) ?: return false
-        return nowSeconds - last <= WORKING_WINDOW_SECONDS
+        val sessions =
+            listOfNotNull(
+                profile.canonical_session?.let {
+                    setOfNotNull(it.id, it.resolved_id) to it.last_active
+                },
+                profile.last_session?.let { setOf(it.id) to it.last_active },
+                profile.worker_session?.let { setOf(it.id) to it.last_active },
+            )
+        return sessions.any { (keys, lastActive) ->
+            val status = keys.firstNotNullOfOrNull { live[it] }
+            if (status != null) {
+                status == "working" || status == "starting"
+            } else {
+                lastActive != null && nowSeconds - lastActive <= WORKING_WINDOW_SECONDS
+            }
+        }
     }
 
     fun isRecent(
         profile: ProfileInfo,
         nowSeconds: Double,
+        lastMessageAt: Double? = null,
     ): Boolean {
-        val last = lastActive(profile) ?: return false
+        // The newest of the roster's session times and the chat's last message, so the dot agrees
+        // with the "Active 8m" shown beside it.
+        val last = listOfNotNull(lastActive(profile), lastMessageAt).maxOrNull() ?: return false
         return nowSeconds - last <= RECENT_WINDOW_SECONDS
     }
 
@@ -166,6 +195,22 @@ internal object BotsPresentation {
 
     /** Name of the pinned room that seats every visible bot (the group chat falls back to all bots). */
     const val ALL_BOTS_ROOM = "All bots"
+
+    /**
+     * The session the Bots home opens for [profile], and previews in the list: the chat you last
+     * used with it ([saved]) unless the bot has spoken in its main chat since, else its main chat.
+     */
+    fun chatToOpen(
+        profile: ProfileInfo,
+        saved: SavedChat?,
+    ): String? {
+        val canonical =
+            (profile.canonical_session?.resolved_id ?: profile.canonical_session?.id)?.takeIf { it.isNotBlank() }
+        if (saved == null) return canonical
+        if (canonical == null || saved.sessionId == canonical) return saved.sessionId
+        val canonicalAt = profile.canonical_session?.last_active ?: return saved.sessionId
+        return if (saved.at >= canonicalAt) saved.sessionId else canonical
+    }
 
     /** Messages in the bot's main conversation, used to count what's new since you last looked. */
     fun messageCount(profile: ProfileInfo): Int? =
@@ -212,11 +257,108 @@ internal object BotsPresentation {
             "no text, no letters, square."
     }
 
-    /** What the bot is doing right now, if we know: the worker's or latest session's title. */
-    fun currentTask(profile: ProfileInfo): String? =
-        (
-            profile.worker_session?.title
-                ?: profile.canonical_session?.title
-                ?: profile.last_session?.title
-        )?.trim()?.takeIf { it.isNotBlank() }
+    /** The @handle, only when it adds something the title doesn't already say ("Work" / @work adds nothing). */
+    fun distinctHandle(
+        name: String,
+        title: String,
+    ): String? {
+        fun key(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
+        return if (key(name) == key(title)) null else "@$name"
+    }
+
+    /**
+     * The bot the Bots home opens on when you haven't picked one: the one whose conversation
+     * moved last ([lastAt] gives when), else the first.
+     */
+    fun mostRecentBot(
+        profiles: List<ProfileInfo>,
+        lastAt: (ProfileInfo) -> Double?,
+    ): ProfileInfo? = profiles.maxByOrNull { lastAt(it) ?: 0.0 }
+
+    /** Longest message preview kept for a row (the row shows up to three lines of it). */
+    private const val PREVIEW_MAX_CHARS = 240
+
+    /** Plain text of a message's content: a string, or the text parts of a content list. */
+    fun contentText(content: JsonElement?): String =
+        when (content) {
+            is JsonPrimitive -> {
+                if (content.isString) content.content else ""
+            }
+
+            is JsonArray -> {
+                content
+                    .mapNotNull { part ->
+                        when (part) {
+                            is JsonPrimitive -> part.content.takeIf { part.isString }
+                            is JsonObject -> (part["text"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                            else -> null
+                        }
+                    }.joinToString(" ")
+            }
+
+            else -> {
+                ""
+            }
+        }
+
+    /** Markdown and extra whitespace stripped, so a preview reads like a chat line. */
+    fun previewText(raw: String): String =
+        raw
+            .replace(Regex("""```[\s\S]*?```"""), " ")
+            .replace(Regex("""!\[[^\]]*]\([^)]*\)"""), " ")
+            .replace(Regex("""\[([^\]]+)]\([^)]*\)"""), "$1")
+            .replace(Regex("""[*_`#>|~]+"""), "")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+            .let { if (it.length > PREVIEW_MAX_CHARS) it.take(PREVIEW_MAX_CHARS).trimEnd() + "…" else it }
+
+    /**
+     * Telegram-style preview from a page of the newest messages: the latest thing you or the bot
+     * said, prefixed "You: " when it was you. Null when there is nothing to show.
+     */
+    fun latestPreview(messages: List<SessionMessage>): String? {
+        val last =
+            messages
+                .asReversed()
+                .firstOrNull { m ->
+                    (m.role == "user" || m.role == "assistant") && m.display_kind == null &&
+                        previewText(contentText(m.display_content ?: m.content)).isNotEmpty()
+                } ?: return null
+        val text = previewText(contentText(last.display_content ?: last.content))
+        return if (last.role == "user") "You: $text" else text
+    }
+
+    /**
+     * When the latest thing you or the bot said was said (epoch seconds): what the list sorts by,
+     * WhatsApp style, so opening or reading a chat never moves it.
+     */
+    fun latestMessageAt(messages: List<SessionMessage>): Double? =
+        messages
+            .asReversed()
+            .firstOrNull { m ->
+                (m.role == "user" || m.role == "assistant") && m.display_kind == null &&
+                    previewText(contentText(m.display_content ?: m.content)).isNotEmpty()
+            }?.timestampEpochMs
+            ?.div(1000.0)
+
+    /**
+     * What the bot is doing right now, if we know: the request its live session is answering,
+     * else a board task's title. Chat titles are left out: they name the conversation (often just
+     * "Bot Chat"), not the work in hand.
+     */
+    fun currentTask(
+        profile: ProfileInfo,
+        liveTasks: Map<String, String> = emptyMap(),
+    ): String? {
+        val keys =
+            listOfNotNull(
+                profile.worker_session?.id,
+                profile.canonical_session?.resolved_id,
+                profile.canonical_session?.id,
+                profile.last_session?.id,
+            )
+        return (keys.firstNotNullOfOrNull { liveTasks[it] } ?: profile.worker_session?.title)
+            ?.let(::previewText)
+            ?.takeIf { it.isNotBlank() }
+    }
 }

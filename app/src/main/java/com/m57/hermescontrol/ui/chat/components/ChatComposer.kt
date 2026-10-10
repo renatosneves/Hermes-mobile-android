@@ -10,8 +10,11 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.content.ReceiveContentListener
+import androidx.compose.foundation.content.contentReceiver
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +35,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Close
@@ -39,6 +45,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -52,10 +59,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -63,19 +72,25 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.m57.hermescontrol.R
 import com.m57.hermescontrol.data.model.Attachment
 import com.m57.hermescontrol.data.model.ProfileInfo
 import com.m57.hermescontrol.data.ws.CommandBlocklist
 import com.m57.hermescontrol.data.ws.CommandCatalog
+import com.m57.hermescontrol.theme.BotsPalette
+import com.m57.hermescontrol.theme.LocalToybox
+import com.m57.hermescontrol.theme.toySticker
 import com.m57.hermescontrol.ui.chat.ChatInputPolicy
 import com.m57.hermescontrol.ui.common.BotAvatar
 import com.m57.hermescontrol.util.BidiUtils
@@ -85,9 +100,9 @@ import com.m57.hermescontrol.util.BidiUtils
  * controls row (attach, model/reasoning pill, mic, send) inside it below.
  */
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 fun ChatInputBar(
-    inputFieldValue: TextFieldValue,
-    onInputChange: (TextFieldValue) -> Unit,
+    inputState: TextFieldState,
     onSend: () -> Unit,
     onMicTap: () -> Unit,
     isListening: Boolean,
@@ -124,33 +139,48 @@ fun ChatInputBar(
     onMicLock: () -> Unit = {},
     isVoiceNoteLocked: Boolean = false,
     isRecordingVoice: Boolean = false,
+    amplitudeProvider: () -> Float = { 0f },
     onStopGeneration: () -> Unit = {},
+    receiveContentListener: ReceiveContentListener? = null,
+    isReceivingContent: Boolean = false,
 ) {
+    val inputText = inputState.text.toString()
     // Allow sending while the agent is mid-turn or awaiting approval: the
     // gateway's prompt.submit busy-input policy queues it as the next turn
     // (tui_gateway/server.py:_handle_busy_submit), so the message is never
     // dropped. Slash commands were already allowed; regular prompts now are too.
     val canSend =
-        pendingReasoningLevel == null &&
-            ChatInputPolicy.canSend(inputFieldValue.text, pendingAttachments, isConnected, isSessionReady)
-    val hasDraft = inputFieldValue.text.isNotBlank() || pendingAttachments.isNotEmpty()
+        !isReceivingContent && pendingReasoningLevel == null &&
+            ChatInputPolicy.canSend(inputText, pendingAttachments, isConnected, isSessionReady)
+    val hasDraft = inputText.isNotBlank() || pendingAttachments.isNotEmpty()
 
     // Attachment tray state
     var showAttachmentTray by remember { mutableStateOf(false) }
-    // The voice-note strip replaces the input field, so the IME closes the
-    // moment recording starts. When the strip goes away (send, delete, or
-    // cancel), focus returns to the input and the keyboard re-opens if it was
-    // up before — the next message must not need an extra tap (device
-    // follow-up, #1247).
+    // The voice-note strip renders inside the input field's decoration box, so
+    // the field stays composed and focused through the whole hold and the
+    // keyboard no longer collapses when recording starts (device follow-up,
+    // #1247). The restore below is only a safety net for a focus that still
+    // got lost (IME quirk); when the field kept focus, its IME state is left
+    // exactly as the user left it.
     val inputFocusRequester = remember { FocusRequester() }
     val softwareKeyboard = LocalSoftwareKeyboardController.current
-    var inputWasFocused by remember { mutableStateOf(false) }
+    var inputFocused by remember { mutableStateOf(false) }
     var restoreInputFocus by remember { mutableStateOf(false) }
-    // Snapshot BEFORE the launcher flips isRecordingVoice — by the time the
-    // recomposition swaps the field out, focus is already on its way to the
-    // root, so the effect alone cannot read it reliably.
+    // While a voice note records, the composer's trailing slots must not
+    // morph: the send/queue AnimatedVisibility content would be disposed
+    // under the holding finger, dropping the pointer loop (and with it the
+    // release). The gesture loop already ignores these slots, so hold-start
+    // freezes the slot layout synchronously (an effect would land a frame
+    // late, after the slots already collapsed) and recording-end thaws them.
+    val holdShowSend = remember { mutableStateOf(false) }
+    val holdCanInterrupt = remember { mutableStateOf(false) }
+    // Snapshot at hold start: whether the keyboard was up (for the restore
+    // safety net) and the trailing slot layout (frozen while recording, see
+    // above).
     val handleMicHoldStart = {
-        restoreInputFocus = inputWasFocused
+        restoreInputFocus = inputFocused
+        holdShowSend.value = hasDraft
+        holdCanInterrupt.value = canInterrupt
         onMicHoldStart()
     }
     // A hold can arm and still fail to start the recorder (permission denied,
@@ -194,7 +224,12 @@ fun ChatInputBar(
                 .apply()
         }
     }
+    val recording = isRecordingVoice
+    val composerShowSend = if (recording) holdShowSend.value else hasDraft
+    val composerCanInterrupt = if (recording) holdCanInterrupt.value else canInterrupt
+
     val palette = composerPalette()
+    val toybox = LocalToybox.current
     BackHandler(enabled = showAttachmentTray) { showAttachmentTray = false }
 
     Box {
@@ -205,16 +240,38 @@ fun ChatInputBar(
         ) {
             // One floating card holds the whole composer: suggestions, attachments,
             // the input and the controls row. Flat fill, hairline edge, no shadow.
+            val toyShape = RoundedCornerShape(30.dp)
             Surface(
                 modifier =
                     Modifier
+                        .then(if (toybox) Modifier.background(BotsPalette.ToyChatBg) else Modifier)
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                shape = MaterialTheme.shapes.large,
-                color = palette.card,
-                border = BorderStroke(width = 1.dp, color = palette.cardBorder),
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        // The white sticker with a 5 dp hard shadow (the shadow needs room).
+                        .then(
+                            if (toybox) {
+                                Modifier
+                                    .padding(end = 5.dp, bottom = 5.dp)
+                                    .toySticker(toyShape, BotsPalette.ToyWhite, depth = 5.dp)
+                            } else {
+                                Modifier
+                            },
+                        ),
+                shape = if (toybox) toyShape else MaterialTheme.shapes.large,
+                color = if (toybox) Color.Transparent else palette.card,
+                border = if (toybox) null else BorderStroke(width = 1.dp, color = palette.cardBorder),
             ) {
                 Column(modifier = Modifier.padding(top = 8.dp, bottom = 10.dp)) {
+                    if (isReceivingContent) {
+                        val loadingLabel = stringResource(R.string.chat_image_paste_loading)
+                        LinearProgressIndicator(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .testTag("chat_image_paste_progress")
+                                    .semantics { contentDescription = loadingLabel },
+                        )
+                    }
                     // Commands hidden from the suggestion menu — desktop/CLI-only and
                     // TUI-only commands that don't function on mobile (issue #574).
                     // Single source of truth: CommandBlocklist.UNSUPPORTED, which is
@@ -228,13 +285,13 @@ fun ChatInputBar(
                             .filter { it.lowercase() !in hiddenSlashDisplay }
 
                     androidx.compose.animation.AnimatedVisibility(
-                        visible = inputFieldValue.text.startsWith("/") && !inputFieldValue.text.contains(" "),
+                        visible = inputText.startsWith("/") && !inputText.contains(" "),
                         enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
                         exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically(),
                     ) {
                         val filteredCommands =
                             ChatInputPolicy.sortSlashSuggestions(
-                                commandNames.filter { it.startsWith(inputFieldValue.text, ignoreCase = true) },
+                                commandNames.filter { it.startsWith(inputText, ignoreCase = true) },
                                 slashUsageCounts,
                             )
                         if (filteredCommands.isNotEmpty()) {
@@ -263,7 +320,7 @@ fun ChatInputBar(
                                                     color = MaterialTheme.colorScheme.primary,
                                                 )
                                             },
-                                            onClick = { onInputChange(ChatInputPolicy.commandFieldValue(cmd)) },
+                                            onClick = { inputState.replaceComposerDraft(cmd) },
                                         )
                                     }
                                 }
@@ -324,7 +381,7 @@ fun ChatInputBar(
                                     stringResource(R.string.chat_input_placeholder_not_connected)
                                 }
 
-                                ChatInputPolicy.showQueuePlaceholder(inputFieldValue.text, isAgentTyping) -> {
+                                ChatInputPolicy.showQueuePlaceholder(inputText, isAgentTyping) -> {
                                     stringResource(R.string.chat_input_placeholder_queue)
                                 }
 
@@ -339,78 +396,102 @@ fun ChatInputBar(
 
                         val ambientLayoutDirection = LocalLayoutDirection.current
                         val inputLayoutDirection =
-                            remember(inputFieldValue.text, ambientLayoutDirection) {
+                            remember(inputText, ambientLayoutDirection) {
                                 BidiUtils.resolveLayoutDirection(
-                                    inputFieldValue.text,
+                                    inputText,
                                     fallback = ambientLayoutDirection,
                                 )
                             }
                         val isInputRtl = inputLayoutDirection == LayoutDirection.Rtl
 
-                        if (isRecordingVoice) {
-                            VoiceNoteRecordingPanel(
-                                slideProgress = voiceSlideProgress,
-                                locked = isVoiceNoteLocked,
-                                onCancel = onMicHoldCancel,
-                                modifier = Modifier.weight(1f),
-                            )
-                        } else {
-                            CompositionLocalProvider(LocalLayoutDirection provides inputLayoutDirection) {
-                                BasicTextField(
-                                    value = inputFieldValue,
-                                    onValueChange = onInputChange,
-                                    modifier =
-                                        Modifier
-                                            .weight(1f)
-                                            .heightIn(min = 42.dp, max = 200.dp)
-                                            .padding(vertical = 4.dp)
-                                            .focusRequester(inputFocusRequester)
-                                            .onFocusChanged { focusState ->
-                                                if (!isRecordingVoice) {
-                                                    inputWasFocused = focusState.isFocused
-                                                }
-                                            }.testTag("chat_input"),
-                                    enabled = isConnected,
-                                    textStyle =
-                                        MaterialTheme.typography.bodyLarge.copy(
-                                            color = palette.text,
-                                            textAlign = if (isInputRtl) TextAlign.Right else TextAlign.Left,
-                                            textDirection = if (isInputRtl) TextDirection.Rtl else TextDirection.Ltr,
+                        // The field stays composed while a voice note records —
+                        // drawn transparent, with the strip overlaid on top — so
+                        // focus and the keyboard survive the hold (device
+                        // follow-up, #1247). The overlay is a sibling, not the
+                        // field's decoration content: decorationBox content does
+                        // not size the field, so the strip would be clipped to
+                        // the empty field's line height and vanish (CI, PR
+                        // #1351). Keystrokes mid-hold are swallowed, and the
+                        // composer's send/stop slots stay frozen — flipping them
+                        // under the finger would drop the hold.
+                        Box(
+                            modifier =
+                                Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 42.dp),
+                        ) {
+                            BasicTextField(
+                                state = inputState,
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .alpha(if (isRecordingVoice) 0f else 1f)
+                                        .heightIn(min = 42.dp, max = 200.dp)
+                                        .padding(vertical = 4.dp)
+                                        .focusRequester(inputFocusRequester)
+                                        .onFocusChanged { focusState ->
+                                            inputFocused = focusState.isFocused
+                                        }.testTag("chat_input")
+                                        .then(
+                                            if (receiveContentListener != null) {
+                                                Modifier.contentReceiver(receiveContentListener)
+                                            } else {
+                                                Modifier
+                                            },
                                         ),
-                                    singleLine = false,
-                                    maxLines = 8,
-                                    cursorBrush = SolidColor(palette.text),
-                                    decorationBox = { innerTextField ->
-                                        CompositionLocalProvider(LocalLayoutDirection provides ambientLayoutDirection) {
-                                            Box(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                contentAlignment =
-                                                    if (isInputRtl) {
-                                                        Alignment.CenterEnd
-                                                    } else {
-                                                        Alignment.CenterStart
-                                                    },
-                                            ) {
-                                                CompositionLocalProvider(
-                                                    LocalLayoutDirection provides inputLayoutDirection,
-                                                ) {
-                                                    if (inputFieldValue.text.isEmpty()) {
-                                                        Text(
-                                                            text = placeholderText,
-                                                            style = MaterialTheme.typography.bodyLarge,
-                                                            textAlign =
-                                                                if (isInputRtl) TextAlign.Right else TextAlign.Left,
-                                                            color = palette.placeholder,
-                                                            maxLines = 1,
-                                                            overflow = TextOverflow.Ellipsis,
-                                                            modifier = Modifier.fillMaxWidth(),
-                                                        )
-                                                    }
-                                                    innerTextField()
-                                                }
-                                            }
-                                        }
+                                enabled = isConnected,
+                                inputTransformation =
+                                    InputTransformation {
+                                        if (isRecordingVoice) revertAllChanges()
                                     },
+                                textStyle =
+                                    toyInputStyle(toybox).copy(
+                                        color = if (toybox) BotsPalette.ToyText else palette.text,
+                                        textAlign = if (isInputRtl) TextAlign.Right else TextAlign.Left,
+                                        textDirection = if (isInputRtl) TextDirection.Rtl else TextDirection.Ltr,
+                                    ),
+                                lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 8),
+                                cursorBrush = SolidColor(palette.text),
+                                decorator = { innerTextField ->
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        contentAlignment =
+                                            if (isInputRtl) {
+                                                Alignment.CenterEnd
+                                            } else {
+                                                Alignment.CenterStart
+                                            },
+                                    ) {
+                                        CompositionLocalProvider(
+                                            LocalLayoutDirection provides inputLayoutDirection,
+                                        ) {
+                                            if (inputText.isEmpty() && !isRecordingVoice) {
+                                                Text(
+                                                    text = placeholderText,
+                                                    style = toyInputStyle(toybox),
+                                                    textAlign =
+                                                        if (isInputRtl) TextAlign.Right else TextAlign.Left,
+                                                    color = palette.placeholder,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                )
+                                            }
+                                            innerTextField()
+                                        }
+                                    }
+                                },
+                            )
+                            if (isRecordingVoice) {
+                                // On top of the transparent field: keeps the
+                                // strip's real 42 dp+ geometry instead of being
+                                // clipped to the empty field's line height.
+                                VoiceNoteRecordingPanel(
+                                    slideProgress = voiceSlideProgress,
+                                    locked = isVoiceNoteLocked,
+                                    onCancel = onMicHoldCancel,
+                                    amplitude = amplitudeProvider,
+                                    modifier = Modifier.matchParentSize(),
                                 )
                             }
                         }
@@ -423,9 +504,9 @@ fun ChatInputBar(
                         reasoningLevel = reasoningLevel,
                         isListening = isListening,
                         canSend = canSend,
-                        showSend = hasDraft,
+                        showSend = composerShowSend,
                         onSend = onSend,
-                        canInterrupt = canInterrupt,
+                        canInterrupt = composerCanInterrupt,
                         onStopGeneration = onStopGeneration,
                         onAttachTap = { showAttachmentTray = !showAttachmentTray },
                         onModelTap = onModelTap,
@@ -460,24 +541,34 @@ fun ChatInputBar(
                 }
             }
         }
-        // Zero-height anchor so the tooltip and lock icon float above the
-        // card, over the message list, like Telegram's lock control. It sits
-        // outside the animated card because AnimatedVisibility clips its
-        // children to the animation bounds.
+        // Anchor at the BOTTOM-end — directly above the mic button the thumb
+        // is holding. The earlier top-of-card anchor sat ~130 dp away from the
+        // thumb and read as unrelated decoration, so the lock affordance went
+        // unnoticed. The content grows upward (wrapContentHeight(Bottom,
+        // unbounded)) and the offset lifts it clear of the button top.
         Box(modifier = Modifier.fillMaxWidth().height(0.dp)) {
             VoiceNoteLockHintOverlay(
                 visible = isRecordingVoice && !isVoiceNoteLocked,
                 showTextHint = !voiceLockHintDone && voiceSlideProgress.value >= 0.8f,
                 modifier =
                     Modifier
-                        .wrapContentHeight(align = Alignment.Top, unbounded = true)
-                        .align(Alignment.TopEnd)
-                        .offset(y = (-42).dp)
-                        .padding(end = 12.dp),
+                        .wrapContentHeight(align = Alignment.Bottom, unbounded = true)
+                        .align(Alignment.BottomEnd)
+                        .offset(y = (-54).dp)
+                        .padding(end = 6.dp),
             )
         }
     }
 }
+
+/** Input text style: the normal body style, or 17 sp Bold in Toybox. */
+@Composable
+private fun toyInputStyle(toybox: Boolean): TextStyle =
+    if (toybox) {
+        MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold, fontSize = 17.sp)
+    } else {
+        MaterialTheme.typography.bodyLarge
+    }
 
 /**
  * Telegram-style lock affordance floating over the composer while a voice
@@ -513,18 +604,30 @@ private fun VoiceNoteLockHintOverlay(
             )
             Spacer(modifier = Modifier.width(6.dp))
         }
-        Box(
-            modifier =
-                Modifier
-                    .size(36.dp)
-                    .background(palette.control, RoundedCornerShape(8.dp)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Lock,
-                contentDescription = null,
-                tint = palette.placeholder,
-                modifier = Modifier.size(18.dp),
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                modifier =
+                    Modifier
+                        .size(36.dp)
+                        .background(palette.control, RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Lock,
+                    contentDescription = null,
+                    tint = palette.placeholder,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            // The track: a short line from the lock circle down toward the mic
+            // button — the affordance reads as "the thing above your thumb",
+            // and the direction of the gesture is implied by where it sits.
+            Box(
+                modifier =
+                    Modifier
+                        .width(1.5.dp)
+                        .height(12.dp)
+                        .background(palette.placeholder.copy(alpha = 0.6f)),
             )
         }
     }
