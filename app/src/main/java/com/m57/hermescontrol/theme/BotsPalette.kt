@@ -8,7 +8,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 
 /** The dark look of the Bots home. */
-enum class DarkStyle { NAVY, CHARCOAL }
+enum class DarkStyle { NAVY, CHARCOAL, TOYBOX }
 
 /** The light look of the Bots home: plain blue-white, or Toybox (soft lilac with candy accents, to suit the cartoon avatars). */
 enum class LightStyle { PLAIN, TOYBOX }
@@ -32,10 +32,12 @@ object BotsPalette {
         light: Color,
         charcoal: Color = dark,
         toybox: Color = light,
+        toyNight: Color = charcoal,
     ): Color =
         when {
             !isDark && lightStyle == LightStyle.TOYBOX -> toybox
             !isDark -> light
+            darkStyle == DarkStyle.TOYBOX -> toyNight
             darkStyle == DarkStyle.CHARCOAL -> charcoal
             else -> dark
         }
@@ -52,6 +54,7 @@ object BotsPalette {
             Color(0xFFF3F5FA),
             Color(0xFF0F0F10),
             Color(0xFFEFEAFF),
+            Color(0xFF17112B),
         )
     val Rail get() =
         pick(
@@ -59,6 +62,7 @@ object BotsPalette {
             Color(0xFFEAEEF7),
             Color(0xFF1E1E1F),
             Color(0xFFEFEAFF),
+            Color(0xFF1B1433),
         )
     val PaneTop get() =
         pick(
@@ -66,6 +70,7 @@ object BotsPalette {
             Color(0xFFFBFCFE),
             Color(0xFF171718),
             Color(0xFFFBF9FF),
+            Color(0xFF17112B),
         )
     val PaneBottom get() =
         pick(
@@ -73,6 +78,7 @@ object BotsPalette {
             Color(0xFFF3F5FA),
             Color(0xFF141415),
             Color(0xFFFBF9FF),
+            Color(0xFF140F26),
         )
     val Deck get() =
         pick(
@@ -80,6 +86,7 @@ object BotsPalette {
             Color(0xFFFFFFFF),
             Color(0xFF242426),
             Color(0xFFFFFFFF),
+            Color(0xFF2A2147),
         )
     val Deck2 get() =
         pick(
@@ -87,6 +94,7 @@ object BotsPalette {
             Color(0xFFEEF1F8),
             Color(0xFF2D2D30),
             Color(0xFFF1EEFF),
+            Color(0xFF231B3D),
         )
     val Deck3 get() =
         pick(
@@ -94,6 +102,7 @@ object BotsPalette {
             Color(0xFFDCE3F7),
             Color(0xFF3A3A3D),
             Color(0xFFDDD6FF),
+            Color(0xFF3A2E63),
         )
     val Line get() =
         pick(
@@ -101,6 +110,7 @@ object BotsPalette {
             Color(0xFFD6DCEA),
             Color(0xFF333336),
             Color(0xFFDDD6FF),
+            Color(0xFF3A2E63),
         )
     val Fg get() =
         pick(
@@ -108,6 +118,7 @@ object BotsPalette {
             Color(0xFF141A33),
             Color(0xFFF2F2F3),
             Color(0xFF241A3D),
+            Color(0xFFF3EEFF),
         )
     val Muted get() =
         pick(
@@ -115,6 +126,7 @@ object BotsPalette {
             Color(0xFF535C82),
             Color(0xFFA3A3A8),
             Color(0xFF5B4F7A),
+            Color(0xFFB3A6DD),
         )
     val Faint get() =
         pick(
@@ -122,6 +134,7 @@ object BotsPalette {
             Color(0xFF68709A),
             Color(0xFF7C7C82),
             Color(0xFF8A7FA8),
+            Color(0xFF8C80B8),
         )
     val Idle get() =
         pick(
@@ -129,6 +142,7 @@ object BotsPalette {
             Color(0xFFA3ABCB),
             Color(0xFF56565C),
             Color(0xFFC2B8DD),
+            Color(0xFF5A4F85),
         )
     val Ok get() =
         pick(
@@ -136,6 +150,7 @@ object BotsPalette {
             Color(0xFF14875A),
             Color(0xFF5FE0A8),
             Color(0xFF12925E),
+            Color(0xFF5FE0A8),
         )
     val You get() =
         pick(
@@ -143,6 +158,7 @@ object BotsPalette {
             Color(0xFFB45F00),
             Color(0xFFFFB547),
             Color(0xFFE8700C),
+            Color(0xFFFFB547),
         )
 
     /** "Needs you": a bot waiting on an approval or an answer. */
@@ -152,6 +168,7 @@ object BotsPalette {
             Color(0xFFB45F00),
             Color(0xFFFFB547),
             Color(0xFFE8590C),
+            Color(0xFFFFB547),
         )
 
     /** Gateway unreachable. */
@@ -161,6 +178,7 @@ object BotsPalette {
             Color(0xFFC92A2A),
             Color(0xFFFF6B6B),
             Color(0xFFD6336C),
+            Color(0xFFFF6B8B),
         )
     val GlowTop get() =
         pick(
@@ -168,6 +186,7 @@ object BotsPalette {
             Color(0xFFE3E9FB),
             Color(0xFF1E1E1F),
             Color(0xFFFFE6CC),
+            Color(0xFF2A1B45),
         )
     val GlowBottom get() =
         pick(
@@ -175,6 +194,7 @@ object BotsPalette {
             Color(0xFFF1E6F5),
             Color(0xFF171718),
             Color(0xFFDDF0FF),
+            Color(0xFF1B2458),
         )
 
     /** One hue per bot, picked by a stable hash of its handle. */
@@ -206,20 +226,28 @@ object BotsPalette {
         )
 
     /** True when the Toybox look is on. */
-    val isToybox get() = !isDark && lightStyle == LightStyle.TOYBOX
+    val isToybox get() = if (isDark) darkStyle == DarkStyle.TOYBOX else lightStyle == LightStyle.TOYBOX
+
+    /** True for Toybox night: the sticker look on a dark plum background. */
+    val isToyNight get() = isDark && darkStyle == DarkStyle.TOYBOX
+
+    private fun toy(
+        light: Color,
+        night: Color,
+    ): Color = if (isToyNight) night else light
 
     /** Toybox accent (your bubbles, selection) and the chunky shadow under it. */
-    val ToyAccent = Color(0xFF6C4CF1)
-    val ToyAccentShadow = Color(0xFF4B2FC4)
+    val ToyAccent get() = toy(Color(0xFF6C4CF1), Color(0xFF8B6CFF))
+    val ToyAccentShadow get() = toy(Color(0xFF4B2FC4), Color(0xFF000000))
 
     /** Shadow under white Toybox cards, buttons and bot bubbles. */
-    val ToyCardShadow = Color(0xFFDDD6FF)
+    val ToyCardShadow get() = toy(Color(0xFFDDD6FF), Color(0xFF0B0716))
 
     /** Shadow under small white Toybox buttons and the soft fill of composer buttons. */
-    val ToyButtonShadow = Color(0xFFD3CAFF)
+    val ToyButtonShadow get() = toy(Color(0xFFD3CAFF), Color(0xFF0B0716))
 
     /** Toybox sticker outline (3 dp) and hard offset shadow; also the selected pill's fill. */
-    val ToyOutline = Color(0xFF241A3D)
+    val ToyOutline get() = toy(Color(0xFF241A3D), Color(0xFF0B0716))
 
     /** Toybox yellow (busy tag, "Today" chip, attach button, busy filter pill). */
     val ToyYellow = Color(0xFFFFD84D)
@@ -228,36 +256,42 @@ object BotsPalette {
     val ToyPink = Color(0xFFFF4F8B)
 
     /** Toybox dotted background dots on the rail and in the chat. */
-    val ToyDot = Color(0xFFD9D0FF)
-    val ToyChatDot = Color(0xFFEBE5FF)
+    val ToyDot get() = toy(Color(0xFFD9D0FF), Color(0xFF2E2550))
+    val ToyChatDot get() = toy(Color(0xFFEBE5FF), Color(0xFF261E42))
 
     /** Toybox chat background. */
-    val ToyChatBg = Color(0xFFFBF9FF)
+    val ToyChatBg get() = toy(Color(0xFFFBF9FF), Color(0xFF17112B))
 
     /** Toybox "talk" button (orange) and its shadow. */
     val ToyTalk = Color(0xFFFF7A1A)
     val ToyTalkShadow = Color(0xFFC4520A)
 
     /** Toybox tool-steps tag (dashed outline): fill, plus an older shadow and text colour kept for small chips. */
-    val ToyStep = Color(0xFFFFF7D6)
+    val ToyStep get() = toy(Color(0xFFFFF7D6), Color(0xFF3B3216))
     val ToyStepShadow = Color(0xFFF2D58E)
-    val ToyStepText = Color(0xFF6B4A00)
+    val ToyStepText get() = toy(Color(0xFF6B4A00), Color(0xFFFFE08A))
 
     /** Text on the Toybox accent. */
     val ToyOnAccent = Color(0xFFFFFFFF)
 
     /** Toybox white sticker fill (bot bubbles, composer, top-bar buttons). */
-    val ToyWhite = Color(0xFFFFFFFF)
+    val ToyWhite get() = toy(Color(0xFFFFFFFF), Color(0xFF2A2147))
 
     /** Timestamp and ticks on the Toybox accent: a light lilac. */
-    val ToyOnAccentMuted = Color(0xFFE2DBFF)
+    val ToyOnAccentMuted get() = toy(Color(0xFFE2DBFF), Color(0xFFD9CFFF))
 
     /** Toybox "ink" fill (model picker chip) and the muted timestamp colour on white bubbles. */
-    val ToyInk = Color(0xFFEFEAFF)
-    val ToyMutedText = Color(0xFF5B4F7A)
+    val ToyInk get() = toy(Color(0xFFEFEAFF), Color(0xFF231B3D))
+    val ToyMutedText get() = toy(Color(0xFF5B4F7A), Color(0xFFB3A6DD))
 
     /** A bot's pastel Toybox tile colour, from its hue. */
-    fun toyTile(hue: Color): Color = lerp(hue, ToyOnAccent, 0.74f)
+    fun toyTile(hue: Color): Color = if (isToyNight) lerp(hue, ToyNightTile, 0.55f) else lerp(hue, ToyOnAccent, 0.74f)
+
+    /** Base the night tiles are mixed towards. */
+    private val ToyNightTile = Color(0xFF241B3F)
+
+    /** Toybox text and icons on cards and backgrounds: dark plum by day, near-white at night. */
+    val ToyText get() = toy(Color(0xFF241A3D), Color(0xFFF3EEFF))
 
     /** The darker pastel drawn under a bot's Toybox tile. */
     fun toyTileShadow(hue: Color): Color = lerp(hue, ToyOnAccent, 0.45f)
