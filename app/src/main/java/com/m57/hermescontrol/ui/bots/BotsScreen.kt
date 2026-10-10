@@ -1,6 +1,9 @@
 package com.m57.hermescontrol.ui.bots
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.RepeatMode
@@ -56,7 +59,11 @@ import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.GroupAdd
+import androidx.compose.material.icons.filled.GroupRemove
+import androidx.compose.material.icons.filled.HideImage
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
@@ -123,6 +130,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -148,10 +156,12 @@ import com.m57.hermescontrol.ui.common.DisableDrawerGestures
 import com.m57.hermescontrol.ui.common.LocalDrawerGestureController
 import com.m57.hermescontrol.ui.common.NavIcon
 import com.m57.hermescontrol.ui.common.ToastEffect
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Width from which the Bots home shows the chat beside the list (an unfolded Fold, a tablet). */
 private val TWO_PANE_MIN_WIDTH = 600.dp
@@ -202,6 +212,8 @@ fun BotsScreen(
         BotPinStore.init(context)
         BotsThemeStore.init(context)
         BotChatStore.init(context)
+        BotsSizeStore.init(context)
+        GroupPictureStore.init(context)
     }
 
     // Horizontal drags on this screen belong to its content; the drawer opens from the menu button.
@@ -302,36 +314,40 @@ fun BotsScreen(
                 }
             }
             val rail: @Composable (Modifier, String?) -> Unit = { railModifier, selectedName ->
-                BotsRail(
-                    modifier = railModifier,
-                    state = state,
-                    now = now,
-                    selectedName = selectedName,
-                    onOpenDrawer = onOpenDrawer,
-                    onSearch = viewModel::setSearchQuery,
-                    onOpenBot = onOpenBot,
-                    onEditBot = { editingBot = it },
-                    onTogglePin = { viewModel.togglePin(it.name) },
-                    onOpenGroup = { group ->
-                        if (group.members.isNotEmpty()) {
-                            NavigationController.navigateTo(com.m57.hermescontrol.GroupChatKey(group.name))
-                        }
-                    },
-                    onOpenAllBots = {
-                        NavigationController.navigateTo(
-                            com.m57.hermescontrol.GroupChatKey(BotsPresentation.ALL_BOTS_ROOM),
+                Box(railModifier) {
+                    BotsScaled {
+                        BotsRail(
+                            modifier = Modifier.fillMaxSize(),
+                            state = state,
+                            now = now,
+                            selectedName = selectedName,
+                            onOpenDrawer = onOpenDrawer,
+                            onSearch = viewModel::setSearchQuery,
+                            onOpenBot = onOpenBot,
+                            onEditBot = { editingBot = it },
+                            onTogglePin = { viewModel.togglePin(it.name) },
+                            onOpenGroup = { group ->
+                                if (group.members.isNotEmpty()) {
+                                    NavigationController.navigateTo(com.m57.hermescontrol.GroupChatKey(group.name))
+                                }
+                            },
+                            onOpenAllBots = {
+                                NavigationController.navigateTo(
+                                    com.m57.hermescontrol.GroupChatKey(BotsPresentation.ALL_BOTS_ROOM),
+                                )
+                            },
+                            onDisbandGroup = { disbandingGroup = it },
+                            onCreateBot = { showCreateDialog = true },
+                            onCreateGroup = { showCreateGroupDialog = true },
+                            onToggleHidden = viewModel::toggleShowHidden,
+                            onRefresh = {
+                                now = nowSeconds()
+                                viewModel.loadBots(isRefresh = true)
+                            },
+                            onHandoffSetting = { showHandoffSetting = true },
                         )
-                    },
-                    onDisbandGroup = { disbandingGroup = it },
-                    onCreateBot = { showCreateDialog = true },
-                    onCreateGroup = { showCreateGroupDialog = true },
-                    onToggleHidden = viewModel::toggleShowHidden,
-                    onRefresh = {
-                        now = nowSeconds()
-                        viewModel.loadBots(isRefresh = true)
-                    },
-                    onHandoffSetting = { showHandoffSetting = true },
-                )
+                    }
+                }
             }
 
             // Nothing picked yet: open on the Chief of Staff, the bot that hands work out.
@@ -368,30 +384,34 @@ fun BotsScreen(
                 if (view != null) {
                     val h = view.selected
                     val target = state.profiles.firstOrNull { it.name.equals(h.target, ignoreCase = true) }
-                    HandoffPane(
-                        view = view,
-                        botFor = handoffBot,
-                        onSelect = handoffViewModel::select,
-                        sourceTitle = selected?.effectiveTitle ?: h.source.orEmpty(),
-                        onClose = onClose,
-                        onTogglePin = handoffViewModel::togglePinned,
-                        onOpenChat =
-                            if (target != null && h.sessionId != null) {
-                                {
-                                    val sessionId = h.sessionId
-                                    handoffViewModel.close()
-                                    scope.launch {
-                                        viewModel.selectBot(target)
-                                        openBotName = target.name
-                                        openSessionId = sessionId
-                                        viewModel.markSeen(target)
-                                    }
-                                }
-                            } else {
-                                null
-                            },
-                        modifier = paneModifier,
-                    )
+                    Box(paneModifier) {
+                        BotsScaled {
+                            HandoffPane(
+                                view = view,
+                                botFor = handoffBot,
+                                onSelect = handoffViewModel::select,
+                                sourceTitle = selected?.effectiveTitle ?: h.source.orEmpty(),
+                                onClose = onClose,
+                                onTogglePin = handoffViewModel::togglePinned,
+                                onOpenChat =
+                                    if (target != null && h.sessionId != null) {
+                                        {
+                                            val sessionId = h.sessionId
+                                            handoffViewModel.close()
+                                            scope.launch {
+                                                viewModel.selectBot(target)
+                                                openBotName = target.name
+                                                openSessionId = sessionId
+                                                viewModel.markSeen(target)
+                                            }
+                                        }
+                                    } else {
+                                        null
+                                    },
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    }
                 }
             }
             val botNames = remember(state.profiles) { state.profiles.map { it.name }.toSet() }
@@ -466,44 +486,50 @@ fun BotsScreen(
                     LaunchedEffect(selected?.name, selected?.let { BotsPresentation.messageCount(it) }) {
                         selected?.let(viewModel::markSeen)
                     }
-                    BotsChatPane(
-                        modifier = Modifier.weight(1f).fillMaxHeight(),
-                        profile = selected,
-                        imageUrl = selected?.let { state.imageFor(it) },
-                        needsYou = selected?.name in state.needsYou,
-                        sessionId = chatSessionId,
-                        now = now,
-                        working = selected?.let { state.isWorking(it, now) } == true,
-                        task = selected?.let(state::taskFor),
-                        lastAt = selected?.let(state::lastMessageTime),
-                        baseScheme = baseScheme,
-                        listToggle =
-                            NavIcon.Action(
-                                icon = if (showList) Icons.AutoMirrored.Filled.MenuOpen else Icons.Filled.Menu,
-                                description =
-                                    stringResource(if (showList) R.string.bots_list_hide else R.string.bots_list_show),
-                            ) {
-                                if (split) {
-                                    // Asking for the list folds the other bot's pane into the strip.
-                                    handoffViewModel.setExpanded(false)
-                                    listHidden = false
-                                } else {
-                                    listHidden = showList
-                                }
-                                BotsLayoutPrefs.setListHidden(context, listHidden)
-                            },
-                        onChatMessages = onHandoffMessages,
-                        onSessionChanged = onSessionChanged,
-                        handoff = handoff?.takeIf { handoffMode == HandoffMode.STRIP || !it.expanded },
-                        handoffBot = handoffBot,
-                        onHandoffStrip = {
-                            if (handoffMode == HandoffMode.SPLIT) {
-                                handoffViewModel.setExpanded(true)
-                            } else {
-                                handoffSheetOpen = true
-                            }
-                        },
-                    )
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                        BotsScaled {
+                            BotsChatPane(
+                                modifier = Modifier.fillMaxSize(),
+                                profile = selected,
+                                imageUrl = selected?.let { state.imageFor(it) },
+                                needsYou = selected?.name in state.needsYou,
+                                sessionId = chatSessionId,
+                                now = now,
+                                working = selected?.let { state.isWorking(it, now) } == true,
+                                task = selected?.let(state::taskFor),
+                                lastAt = selected?.let(state::lastMessageTime),
+                                baseScheme = baseScheme,
+                                listToggle =
+                                    NavIcon.Action(
+                                        icon = if (showList) Icons.AutoMirrored.Filled.MenuOpen else Icons.Filled.Menu,
+                                        description =
+                                            stringResource(
+                                                if (showList) R.string.bots_list_hide else R.string.bots_list_show,
+                                            ),
+                                    ) {
+                                        if (split) {
+                                            // Asking for the list folds the other bot's pane into the strip.
+                                            handoffViewModel.setExpanded(false)
+                                            listHidden = false
+                                        } else {
+                                            listHidden = showList
+                                        }
+                                        BotsLayoutPrefs.setListHidden(context, listHidden)
+                                    },
+                                onChatMessages = onHandoffMessages,
+                                onSessionChanged = onSessionChanged,
+                                handoff = handoff?.takeIf { handoffMode == HandoffMode.STRIP || !it.expanded },
+                                handoffBot = handoffBot,
+                                onHandoffStrip = {
+                                    if (handoffMode == HandoffMode.SPLIT) {
+                                        handoffViewModel.setExpanded(true)
+                                    } else {
+                                        handoffSheetOpen = true
+                                    }
+                                },
+                            )
+                        }
+                    }
                     AnimatedVisibility(
                         visible = split && handoff != null,
                         enter = expandHorizontally(expandFrom = Alignment.Start) + fadeIn(),
@@ -541,28 +567,41 @@ fun BotsScreen(
                 LaunchedEffect(selected.name, BotsPresentation.messageCount(selected)) {
                     viewModel.markSeen(selected)
                 }
-                BotsChatPane(
-                    modifier = Modifier.fillMaxSize(),
-                    profile = selected,
-                    imageUrl = state.imageFor(selected),
-                    needsYou = selected.name in state.needsYou,
-                    sessionId = chatSessionId,
-                    now = now,
-                    working = state.isWorking(selected, now),
-                    task = state.taskFor(selected),
-                    lastAt = state.lastMessageTime(selected),
-                    baseScheme = baseScheme,
-                    onBack = closeChat,
-                    onChatMessages = onHandoffMessages,
-                    onSessionChanged = onSessionChanged,
-                    handoff = handoff,
-                    handoffBot = handoffBot,
-                    onHandoffStrip = { handoffSheetOpen = true },
-                )
+                Box(Modifier.fillMaxSize()) {
+                    BotsScaled {
+                        BotsChatPane(
+                            modifier = Modifier.fillMaxSize(),
+                            profile = selected,
+                            imageUrl = state.imageFor(selected),
+                            needsYou = selected.name in state.needsYou,
+                            sessionId = chatSessionId,
+                            now = now,
+                            working = state.isWorking(selected, now),
+                            task = state.taskFor(selected),
+                            lastAt = state.lastMessageTime(selected),
+                            baseScheme = baseScheme,
+                            onBack = closeChat,
+                            onChatMessages = onHandoffMessages,
+                            onSessionChanged = onSessionChanged,
+                            handoff = handoff,
+                            handoffBot = handoffBot,
+                            onHandoffStrip = { handoffSheetOpen = true },
+                        )
+                    }
+                }
             } else {
                 rail(Modifier.fillMaxSize(), null)
             }
         }
+    }
+}
+
+/** Draws its content at the chosen Bots size: dp and sp scale together, so nothing overlaps. */
+@Composable
+private fun BotsScaled(content: @Composable () -> Unit) {
+    val d = LocalDensity.current
+    CompositionLocalProvider(LocalDensity provides Density(d.density * BotsSizeStore.scale, d.fontScale)) {
+        content()
     }
 }
 
@@ -705,6 +744,24 @@ private fun BotsRail(
 ) {
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var filter by rememberSaveable { mutableStateOf(RailFilter.ALL) }
+    // Picking a picture for a group: which one it is for, then the chosen image stored on this phone.
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pictureTarget by remember { mutableStateOf<String?>(null) }
+    val picturePicker =
+        rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+            val target = pictureTarget
+            if (uri != null && target != null) {
+                scope.launch {
+                    val encoded = withContext(Dispatchers.IO) { encodeBotImage(context, uri) }
+                    if (encoded != null) GroupPictureStore.set(target, encoded)
+                }
+            }
+        }
+    val pickPicture: (String) -> Unit = { name ->
+        pictureTarget = name
+        picturePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    }
     // Bots that need you float to the top.
     val bots = state.displayProfiles.sortedByDescending { it.name in state.needsYou }
     // Pinned bots sit in their own row, so the counts and the all-bots room add them back in.
@@ -829,32 +886,53 @@ private fun BotsRail(
                 ) {
                     if (showPinned) {
                         item(key = "pinned") {
-                            LazyRow(
-                                modifier = Modifier.animateItem(),
-                                contentPadding = PaddingValues(horizontal = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                if (showAllRoom) {
-                                    item(key = "all_bots_room") { AllBotsTile(onClick = onOpenAllBots) }
+                            // Tiles in rows of two: the all-bots room first (when shown), then pinned bots.
+                            val tiles =
+                                buildList<@Composable (Modifier) -> Unit> {
+                                    if (showAllRoom) {
+                                        add { tileModifier ->
+                                            AllBotsTile(
+                                                onClick = onOpenAllBots,
+                                                onChangePicture = { pickPicture(BotsPresentation.ALL_BOTS_ROOM) },
+                                                modifier = tileModifier,
+                                            )
+                                        }
+                                    }
+                                    for (profile in pinnedBots) {
+                                        add { tileModifier ->
+                                            PinnedBot(
+                                                modifier = tileModifier,
+                                                profile = profile,
+                                                now = now,
+                                                selected = profile.name == selectedName,
+                                                imageUrl = state.imageFor(profile),
+                                                needsYou = profile.name in state.needsYou,
+                                                unread =
+                                                    if (profile.name == selectedName) {
+                                                        0
+                                                    } else {
+                                                        BotsPresentation.unreadCount(
+                                                            profile,
+                                                            state.seenCounts[profile.name],
+                                                        )
+                                                    },
+                                                working = state.isWorking(profile, now),
+                                                onOpenBot = { onOpenBot(profile) },
+                                                onTogglePin = { onTogglePin(profile) },
+                                                onEditBot = { onEditBot(profile) },
+                                            )
+                                        }
+                                    }
                                 }
-                                items(items = pinnedBots, key = { it.name }) { profile ->
-                                    PinnedBot(
-                                        profile = profile,
-                                        now = now,
-                                        selected = profile.name == selectedName,
-                                        imageUrl = state.imageFor(profile),
-                                        needsYou = profile.name in state.needsYou,
-                                        unread =
-                                            if (profile.name == selectedName) {
-                                                0
-                                            } else {
-                                                BotsPresentation.unreadCount(profile, state.seenCounts[profile.name])
-                                            },
-                                        working = state.isWorking(profile, now),
-                                        onOpenBot = { onOpenBot(profile) },
-                                        onTogglePin = { onTogglePin(profile) },
-                                        onEditBot = { onEditBot(profile) },
-                                    )
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).animateItem(),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                for (pair in tiles.chunked(2)) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        for (tile in pair) tile(Modifier.weight(1f))
+                                        if (pair.size == 1) Spacer(Modifier.weight(1f))
+                                    }
                                 }
                             }
                         }
@@ -901,7 +979,8 @@ private fun BotsRail(
                                 modifier = Modifier.animateItem(),
                                 group = group,
                                 onClick = { onOpenGroup(group) },
-                                onLongClick = { onDisbandGroup(group) },
+                                onChangePicture = { pickPicture(group.name) },
+                                onDisband = { onDisbandGroup(group) },
                             )
                         }
                     }
@@ -1101,6 +1180,21 @@ private fun RailHeader(
                     )
                 }
                 HorizontalDivider(color = BotsPalette.Line)
+                for ((scale, label) in BotsSizeStore.SIZES) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(label)) },
+                        leadingIcon = { Icon(Icons.Filled.FormatSize, contentDescription = null) },
+                        trailingIcon = {
+                            if (BotsSizeStore.scale == scale) Icon(Icons.Filled.Check, contentDescription = null)
+                        },
+                        onClick = {
+                            menuOpen = false
+                            BotsSizeStore.set(scale)
+                        },
+                        modifier = Modifier.testTag("bots_size_${sizeTag(scale)}"),
+                    )
+                }
+                HorizontalDivider(color = BotsPalette.Line)
                 // What the chat recorded, for tracing a problem seen on the phone.
                 val context = LocalContext.current
                 DropdownMenuItem(
@@ -1115,6 +1209,14 @@ private fun RailHeader(
         }
     }
 }
+
+private fun sizeTag(scale: Float): String =
+    when (scale) {
+        0.9f -> "small"
+        1.0f -> "default"
+        1.12f -> "large"
+        else -> "xlarge"
+    }
 
 /** One entry of the theme menu: the stored preference, the dark style it selects (if any), and its look. */
 private data class ThemeChoice(
@@ -1307,28 +1409,91 @@ private fun BotMenu(
 
 /** The room with every bot, as the first tile of the pinned row. */
 @Composable
-private fun AllBotsTile(onClick: () -> Unit) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier =
-            Modifier
-                .width(92.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .clickable(onClick = onClick)
-                .padding(vertical = 8.dp)
-                .testTag("pinned_all_bots"),
-    ) {
-        BotOrb(initials = "", hue = BotsPalette.Muted, size = 68.dp, team = true)
-        Text(
-            text = stringResource(R.string.bots_all_room),
-            color = BotsPalette.Muted,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 6.dp),
+private fun AllBotsTile(
+    onClick: () -> Unit,
+    onChangePicture: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    Box(modifier) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .combinedClickable(onClick = onClick, onLongClick = { menuOpen = true })
+                    .padding(vertical = 8.dp)
+                    .testTag("pinned_all_bots"),
+        ) {
+            BotOrb(
+                initials = "",
+                hue = BotsPalette.Muted,
+                size = 68.dp,
+                team = true,
+                imageUrl = GroupPictureStore.get(BotsPresentation.ALL_BOTS_ROOM),
+            )
+            Text(
+                text = stringResource(R.string.bots_all_room),
+                color = BotsPalette.Muted,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+        GroupPictureMenu(
+            expanded = menuOpen,
+            name = BotsPresentation.ALL_BOTS_ROOM,
+            onDismiss = { menuOpen = false },
+            onChangePicture = onChangePicture,
         )
+    }
+}
+
+/** Long-press menu for a room's picture (and, for a group, disbanding it). */
+@Composable
+private fun GroupPictureMenu(
+    expanded: Boolean,
+    name: String,
+    onDismiss: () -> Unit,
+    onChangePicture: () -> Unit,
+    onDisband: (() -> Unit)? = null,
+) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.bots_group_picture_change)) },
+            leadingIcon = { Icon(Icons.Filled.Image, contentDescription = null) },
+            onClick = {
+                onDismiss()
+                onChangePicture()
+            },
+            modifier = Modifier.testTag("group_menu_picture"),
+        )
+        if (GroupPictureStore.get(name) != null) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.bots_group_picture_remove)) },
+                leadingIcon = { Icon(Icons.Filled.HideImage, contentDescription = null) },
+                onClick = {
+                    onDismiss()
+                    GroupPictureStore.remove(name)
+                },
+                modifier = Modifier.testTag("group_menu_picture_remove"),
+            )
+        }
+        if (onDisband != null) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.bots_group_disband)) },
+                leadingIcon = { Icon(Icons.Filled.GroupRemove, contentDescription = null) },
+                onClick = {
+                    onDismiss()
+                    onDisband()
+                },
+                modifier = Modifier.testTag("group_menu_disband"),
+            )
+        }
     }
 }
 
@@ -1336,6 +1501,7 @@ private fun AllBotsTile(onClick: () -> Unit) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PinnedBot(
+    modifier: Modifier,
     profile: ProfileInfo,
     now: Double,
     selected: Boolean,
@@ -1350,12 +1516,12 @@ private fun PinnedBot(
     val hue = hueFor(profile)
     val title = profile.effectiveTitle
     var menuOpen by remember { mutableStateOf(false) }
-    Box {
+    Box(modifier) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier =
                 Modifier
-                    .width(92.dp)
+                    .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
                     .combinedClickable(onClick = onOpenBot, onLongClick = { menuOpen = true })
                     .padding(vertical = 8.dp)
@@ -1609,21 +1775,29 @@ private fun UnreadBadge(
 private fun GroupRow(
     group: GroupInfo,
     onClick: () -> Unit,
-    onLongClick: () -> Unit,
+    onChangePicture: () -> Unit,
+    onDisband: () -> Unit,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
     Row(
         modifier =
             modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(14.dp))
-                .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                .combinedClickable(onClick = onClick, onLongClick = { menuOpen = true })
                 .padding(start = 8.dp, end = 12.dp, top = 10.dp, bottom = 10.dp)
                 .testTag("group_row_${group.name}"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BotOrb(initials = "", hue = BotsPalette.Muted, size = 52.dp, team = true)
+        BotOrb(
+            initials = "",
+            hue = BotsPalette.Muted,
+            size = 52.dp,
+            team = true,
+            imageUrl = GroupPictureStore.get(group.name),
+        )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -1644,6 +1818,13 @@ private fun GroupRow(
             )
         }
     }
+    GroupPictureMenu(
+        expanded = menuOpen,
+        name = group.name,
+        onDismiss = { menuOpen = false },
+        onChangePicture = onChangePicture,
+        onDisband = onDisband,
+    )
 }
 
 @Composable

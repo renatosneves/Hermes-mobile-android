@@ -1936,6 +1936,12 @@
     <string name="bots_theme_night">Night</string>
     <string name="bots_theme_charcoal">Charcoal</string>
     <string name="bots_theme_auto">Auto (follows phone)</string>
+    <string name="bots_size_small">Small</string>
+    <string name="bots_size_default">Default</string>
+    <string name="bots_size_large">Large</string>
+    <string name="bots_size_xlarge">Extra large</string>
+    <string name="bots_group_picture_change">Change picture</string>
+    <string name="bots_group_picture_remove">Remove picture</string>
     <string name="handoff_mode_split">Side by side</string>
     <string name="handoff_mode_split_desc">Unfolded, the bot doing the work opens beside the chat. Folded, a strip shows above it.</string>
     <string name="handoff_mode_strip">Strip only</string>

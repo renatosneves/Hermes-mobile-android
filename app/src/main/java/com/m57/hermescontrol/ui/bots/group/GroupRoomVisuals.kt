@@ -36,6 +36,7 @@ import com.m57.hermescontrol.theme.BotsPalette
 import com.m57.hermescontrol.theme.parseHexColor
 import com.m57.hermescontrol.ui.bots.BotOrb
 import com.m57.hermescontrol.ui.bots.BotsPresentation
+import com.m57.hermescontrol.ui.bots.GroupPictureStore
 
 /** Accent for group rooms: the lavender the Bots home opens with. */
 internal val RoomHue: Color get() = BotsPalette.Hues[0]
@@ -98,7 +99,14 @@ internal fun RoomTitle(
     avatars: Map<String, String>,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("group_room_title")) {
-        BotOrb(initials = "", hue = RoomHue, size = 34.dp, team = true, working = activeSpeaker != null)
+        BotOrb(
+            initials = "",
+            hue = RoomHue,
+            size = 34.dp,
+            team = true,
+            working = activeSpeaker != null,
+            imageUrl = GroupPictureStore.get(name),
+        )
         Spacer(Modifier.width(8.dp))
         Column {
             Text(
