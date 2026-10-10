@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -190,6 +191,8 @@ fun ChatScreen(
     /** The bot a live voice call from this chat speaks as, and its picture (the Bots home sets these). */
     voiceTitle: String? = null,
     voiceImageUrl: String? = null,
+    /** Adds a "Cron jobs" shortcut as the first item of the overflow menu (the Bots home sets this). */
+    onOpenCron: (() -> Unit)? = null,
     viewModel: ChatViewModel = viewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -650,6 +653,22 @@ fun ChatScreen(
                     expanded = showSessionMenu,
                     onDismissRequest = { showSessionMenu = false },
                 ) {
+                    if (onOpenCron != null) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.bots_action_cron)) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Filled.Schedule,
+                                    contentDescription = null,
+                                )
+                            },
+                            onClick = {
+                                showSessionMenu = false
+                                onOpenCron()
+                            },
+                            modifier = Modifier.testTag("chat_menu_cron"),
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.chat_action_timeline)) },
                         leadingIcon = {

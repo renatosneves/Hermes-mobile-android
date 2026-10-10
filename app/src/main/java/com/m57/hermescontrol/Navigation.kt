@@ -4,7 +4,10 @@ import android.app.Activity
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -18,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DrawerDefaults
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -39,10 +43,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
@@ -51,10 +60,14 @@ import androidx.navigation3.ui.NavDisplay
 import com.m57.hermescontrol.data.local.AuthManager
 import com.m57.hermescontrol.data.ws.ConnectionStatus
 import com.m57.hermescontrol.data.ws.HermesWsClient
+import com.m57.hermescontrol.theme.BotsPalette
 import com.m57.hermescontrol.theme.LocalHermesStatusColors
+import com.m57.hermescontrol.theme.ToyFonts
+import com.m57.hermescontrol.theme.toyDots
 import com.m57.hermescontrol.ui.common.DisableDrawerGestures
 import com.m57.hermescontrol.ui.common.DrawerGestureController
 import com.m57.hermescontrol.ui.common.LocalDrawerGestureController
+import com.m57.hermescontrol.ui.common.NavDrawerSections
 import com.m57.hermescontrol.ui.plugins.MemoryProviderDetailScreen
 import com.m57.hermescontrol.ui.settings.ClientCertificatesPage
 import com.m57.hermescontrol.ui.settings.SettingsAboutPage
@@ -269,8 +282,26 @@ fun MainNavigation(sessionId: String? = null) {
             drawerState = drawerState,
             gesturesEnabled = gestureController.enabled,
             drawerContent = {
+                val toy = BotsPalette.isToybox
                 ModalDrawerSheet(
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    modifier =
+                        (
+                            if (toy) {
+                                // Polka dots with a dark edge on the right, as on the Bots screen.
+                                Modifier.toyDots(BotsPalette.Ink, BotsPalette.ToyDot, 22.dp).drawBehind {
+                                    val edge = 3.dp.toPx()
+                                    drawRect(
+                                        BotsPalette.ToyOutline,
+                                        topLeft = Offset(size.width - edge, 0f),
+                                        size = Size(edge, size.height),
+                                    )
+                                }
+                            } else {
+                                Modifier
+                            }
+                        ).verticalScroll(rememberScrollState()),
+                    drawerContainerColor = if (toy) BotsPalette.Ink else DrawerDefaults.modalContainerColor,
+                    drawerShape = if (toy) RectangleShape else DrawerDefaults.shape,
                 ) {
                     val connectionStatus by HermesWsClient.connectionStatus.collectAsState()
                     val statusColor =
@@ -286,73 +317,78 @@ fun MainNavigation(sessionId: String? = null) {
                             ConnectionStatus.AUTH_EXPIRED,
                             -> LocalHermesStatusColors.current.error
                         }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 2.dp),
-                    ) {
-                        Text(
-                            text = stringResource(R.string.nav_drawer_title),
-                            style =
-                                MaterialTheme.typography.headlineSmall.copy(
-                                    fontWeight = FontWeight.Bold,
-                                ),
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Box(
-                            modifier =
-                                Modifier
-                                    .size(10.dp)
-                                    .background(color = statusColor, shape = CircleShape),
-                        )
-                    }
-                    Text(
-                        text = stringResource(R.string.nav_drawer_subtitle),
-                        modifier = Modifier.padding(start = 16.dp, bottom = 8.dp, end = 16.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-                    for (section in DrawerSection.entries) {
-                        Text(
-                            text = stringResource(section.titleRes).uppercase(),
-                            modifier =
-                                Modifier.padding(
-                                    start = 16.dp,
-                                    top = 8.dp,
-                                    bottom = 4.dp,
-                                    end = 16.dp,
-                                ),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        ScreenRegistry.ALL_SCREENS
-                            .filter { it.drawerSection == section && hasToken }
-                            .forEach { entry ->
-                                NavigationDrawerItem(
-                                    icon = { Icon(entry.icon, contentDescription = null) },
-                                    label = { Text(stringResource(entry.labelRes)) },
-                                    selected = currentScreen == entry.key,
-                                    onClick = {
-                                        scope.launch { drawerState.close() }
-                                        NavigationController.navigateTo(entry.key)
-                                    },
-                                    colors =
-                                        NavigationDrawerItemDefaults.colors(
-                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                            selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        ),
+                    if (toy) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                            modifier = Modifier.padding(start = 22.dp, top = 16.dp, end = 22.dp, bottom = 14.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = stringResource(R.string.nav_drawer_title),
+                                    color = BotsPalette.ToyText,
+                                    fontFamily = ToyFonts.Display,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 30.sp,
+                                    lineHeight = 32.sp,
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Box(
+                                    modifier =
+                                        Modifier
+                                            .size(12.dp)
+                                            .background(color = statusColor, shape = CircleShape)
+                                            .border(2.dp, BotsPalette.ToyOutline, CircleShape),
                                 )
                             }
+                            Text(
+                                text = stringResource(R.string.nav_drawer_subtitle),
+                                color = BotsPalette.ToyMutedText,
+                                fontFamily = ToyFonts.Body,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 14.sp,
+                            )
+                        }
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 2.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.nav_drawer_title),
+                                style =
+                                    MaterialTheme.typography.headlineSmall.copy(
+                                        fontWeight = FontWeight.Bold,
+                                    ),
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .size(10.dp)
+                                        .background(color = statusColor, shape = CircleShape),
+                            )
+                        }
+                        Text(
+                            text = stringResource(R.string.nav_drawer_subtitle),
+                            modifier = Modifier.padding(start = 16.dp, bottom = 8.dp, end = 16.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     }
 
+                    NavDrawerSections(
+                        screens = if (hasToken) ScreenRegistry.ALL_SCREENS else emptyList(),
+                        currentScreen = currentScreen,
+                        onNavigate = { key ->
+                            scope.launch { drawerState.close() }
+                            NavigationController.navigateTo(key)
+                        },
+                    )
+
                     Spacer(modifier = Modifier.height(8.dp))
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    if (!toy) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     Spacer(modifier = Modifier.height(12.dp))
                 }
             },

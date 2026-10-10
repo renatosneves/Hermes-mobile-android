@@ -70,6 +70,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Toys
 import androidx.compose.material.icons.filled.VerticalSplit
@@ -130,6 +131,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
@@ -1093,8 +1095,16 @@ private fun RailHeader(
     onHandoffSetting: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    val toyHeader = LocalToybox.current
     Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 4.dp),
+        // The row sits right under the status bar: no extra band above the title.
+        modifier =
+            Modifier.fillMaxWidth().padding(
+                start = 4.dp,
+                end = 4.dp,
+                top = if (toyHeader) 0.dp else 2.dp,
+                bottom = 4.dp,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (onOpenDrawer != null) {
@@ -1112,8 +1122,15 @@ private fun RailHeader(
             val toy = LocalToybox.current
             Text(
                 text = stringResource(if (toy) R.string.bots_toy_title else R.string.screen_bots),
-                color = BotsPalette.Fg,
+                color = if (toy) BotsPalette.ToyText else BotsPalette.Fg,
                 fontSize = if (toy) 30.sp else 24.sp,
+                // Baloo's tall ascent would otherwise leave a band above the title.
+                lineHeight = if (toy) 32.sp else 28.sp,
+                style =
+                    TextStyle(
+                        lineHeightStyle =
+                            LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
+                    ),
                 fontFamily = if (toy) ToyFonts.Display else null,
                 fontWeight = if (toy) FontWeight.ExtraBold else FontWeight.Bold,
                 letterSpacing = if (toy) 0.sp else (-0.3).sp,
@@ -1160,6 +1177,15 @@ private fun RailHeader(
                 )
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.bots_action_cron)) },
+                    leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
+                    onClick = {
+                        menuOpen = false
+                        NavigationController.navigateTo(com.m57.hermescontrol.CronJobsScreen)
+                    },
+                    modifier = Modifier.testTag("bots_action_cron"),
+                )
                 DropdownMenuItem(
                     text = {
                         Text(
@@ -2179,6 +2205,7 @@ private fun BotsChatPane(
                         navigationAction = listToggle,
                         voiceTitle = profile.effectiveTitle,
                         voiceImageUrl = imageUrl,
+                        onOpenCron = { NavigationController.navigateTo(com.m57.hermescontrol.CronJobsScreen) },
                         titleOverride = {
                             PaneTitle(
                                 profile = profile,
