@@ -9,6 +9,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Group
@@ -16,7 +18,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,6 +41,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
+import coil3.request.allowHardware
+import coil3.request.transformations
+import coil3.toBitmap
 import com.m57.hermescontrol.theme.BotsPalette
 import com.m57.hermescontrol.ui.common.resolveAvatarShape
 
@@ -124,13 +134,9 @@ fun BotOrb(
                     },
             contentAlignment = Alignment.Center,
         ) {
+            // A picture is drawn above the body (below), so it can spill past the orb.
             if (!imageUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                Unit
             } else if (team) {
                 Icon(
                     imageVector = Icons.Filled.Group,
@@ -149,6 +155,33 @@ fun BotOrb(
                     maxLines = 1,
                 )
             }
+        }
+        if (!imageUrl.isNullOrBlank()) {
+            // A picture on a plain or see-through background is lifted off it and drawn a little
+            // larger than the orb, so it breaks out of the circle; any other stays inside it.
+            val context = LocalPlatformContext.current
+            val request =
+                remember(imageUrl) {
+                    ImageRequest
+                        .Builder(context)
+                        .data(imageUrl)
+                        .transformations(AvatarCutoutTransformation())
+                        .allowHardware(false)
+                        .build()
+                }
+            var breakout by remember(imageUrl) { mutableStateOf(false) }
+            AsyncImage(
+                model = request,
+                contentDescription = null,
+                contentScale = if (breakout) ContentScale.Fit else ContentScale.Crop,
+                onSuccess = { state -> breakout = hasClearCorners(state.result.image.toBitmap()) },
+                modifier =
+                    if (breakout) {
+                        Modifier.requiredSize(size * BREAKOUT_SCALE).offset(y = -size * BREAKOUT_LIFT)
+                    } else {
+                        Modifier.size(size).clip(shape)
+                    },
+            )
         }
         // Working ring and presence dot sit above the body.
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -195,4 +228,19 @@ fun BotOrb(
             }
         }
     }
+}
+
+/** How much larger than its orb a lifted-off picture is drawn. */
+private const val BREAKOUT_SCALE = 1.22f
+
+/** Raised a touch, so heads and wings rise above the orb rather than spill below it. */
+private const val BREAKOUT_LIFT = 0.06f
+
+private fun hasClearCorners(bitmap: android.graphics.Bitmap): Boolean {
+    val w = bitmap.width
+    val h = bitmap.height
+    if (w < 2 || h < 2) return false
+    val px = IntArray(w * h)
+    bitmap.getPixels(px, 0, w, 0, 0, w, h)
+    return AvatarCutout.hasClearCorners(px, w, h)
 }
