@@ -134,6 +134,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -943,109 +944,116 @@ private fun BotsRail(
             }
 
             else -> {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize().navigationBarsPadding(),
-                    contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 2.dp, bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    if (showPinned) {
-                        item(key = "pinned") {
-                            // Tiles in rows of two: the all-bots room first (when shown), then pinned bots.
-                            val tiles =
-                                buildList<@Composable (Modifier) -> Unit> {
-                                    if (showAllRoom) {
-                                        add { tileModifier ->
-                                            AllBotsTile(
-                                                onClick = onOpenAllBots,
-                                                onChangePicture = { pickPicture(BotsPresentation.ALL_BOTS_ROOM) },
-                                                modifier = tileModifier,
-                                            )
+                BoxWithConstraints(Modifier.fillMaxSize().navigationBarsPadding()) {
+                    val listHeight = maxHeight
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 2.dp, bottom = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        if (showPinned) {
+                            item(key = "pinned") {
+                                // Tiles in rows of two: the all-bots room first (when shown), then pinned bots.
+                                val tiles =
+                                    buildList<@Composable (Modifier, Dp) -> Unit> {
+                                        if (showAllRoom) {
+                                            add { tileModifier, tileSize ->
+                                                AllBotsTile(
+                                                    tileSize = tileSize,
+                                                    onClick = onOpenAllBots,
+                                                    onChangePicture = { pickPicture(BotsPresentation.ALL_BOTS_ROOM) },
+                                                    modifier = tileModifier,
+                                                )
+                                            }
+                                        }
+                                        for (profile in pinnedBots) {
+                                            add { tileModifier, tileSize ->
+                                                PinnedBot(
+                                                    tileSize = tileSize,
+                                                    modifier = tileModifier,
+                                                    profile = profile,
+                                                    now = now,
+                                                    selected = profile.name == selectedName,
+                                                    imageUrl = state.imageFor(profile),
+                                                    needsYou = profile.name in state.needsYou,
+                                                    unread =
+                                                        if (profile.name == selectedName) {
+                                                            0
+                                                        } else {
+                                                            BotsPresentation.unreadCount(
+                                                                profile,
+                                                                state.seenCounts[profile.name],
+                                                            )
+                                                        },
+                                                    working = state.isWorking(profile, now),
+                                                    onOpenBot = { onOpenBot(profile) },
+                                                    onTogglePin = { onTogglePin(profile) },
+                                                    onEditBot = { onEditBot(profile) },
+                                                )
+                                            }
                                         }
                                     }
-                                    for (profile in pinnedBots) {
-                                        add { tileModifier ->
-                                            PinnedBot(
-                                                modifier = tileModifier,
-                                                profile = profile,
-                                                now = now,
-                                                selected = profile.name == selectedName,
-                                                imageUrl = state.imageFor(profile),
-                                                needsYou = profile.name in state.needsYou,
-                                                unread =
-                                                    if (profile.name == selectedName) {
-                                                        0
-                                                    } else {
-                                                        BotsPresentation.unreadCount(
-                                                            profile,
-                                                            state.seenCounts[profile.name],
-                                                        )
-                                                    },
-                                                working = state.isWorking(profile, now),
-                                                onOpenBot = { onOpenBot(profile) },
-                                                onTogglePin = { onTogglePin(profile) },
-                                                onEditBot = { onEditBot(profile) },
-                                            )
+                                Column(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).animateItem(),
+                                    verticalArrangement = Arrangement.spacedBy(if (toy) 2.dp else 4.dp),
+                                ) {
+                                    // Toybox tiles shrink so every pinned bot fits the rail's height at once.
+                                    val tileSize = if (toy) toyTileSizeFor(listHeight, tiles.size) else 68.dp
+                                    for (pair in tiles.chunked(2)) {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(if (toy) 18.dp else 4.dp)) {
+                                            for (tile in pair) tile(Modifier.weight(1f), tileSize)
+                                            if (pair.size == 1) Spacer(Modifier.weight(1f))
                                         }
-                                    }
-                                }
-                            Column(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).animateItem(),
-                                verticalArrangement = Arrangement.spacedBy(if (toy) 18.dp else 4.dp),
-                            ) {
-                                for (pair in tiles.chunked(2)) {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(if (toy) 18.dp else 4.dp)) {
-                                        for (tile in pair) tile(Modifier.weight(1f))
-                                        if (pair.size == 1) Spacer(Modifier.weight(1f))
                                     }
                                 }
                             }
                         }
-                    }
-                    val aboveBots = showPinned
-                    if (shownBots.isNotEmpty() && (shownGroups.isNotEmpty() || aboveBots)) {
-                        item(key = "label_bots") {
-                            SectionLabel(
-                                text = stringResource(R.string.bots_section_agents),
-                                collapsed = agentsCollapsed,
-                                onToggle = { agentsCollapsed = !agentsCollapsed },
+                        val aboveBots = showPinned
+                        if (shownBots.isNotEmpty() && (shownGroups.isNotEmpty() || aboveBots)) {
+                            item(key = "label_bots") {
+                                SectionLabel(
+                                    text = stringResource(R.string.bots_section_agents),
+                                    collapsed = agentsCollapsed,
+                                    onToggle = { agentsCollapsed = !agentsCollapsed },
+                                    modifier = Modifier.animateItem(),
+                                )
+                            }
+                        }
+                        items(items = if (agentsCollapsed) emptyList() else shownBots, key = { it.name }) { profile ->
+                            BotRow(
                                 modifier = Modifier.animateItem(),
+                                profile = profile,
+                                now = now,
+                                selected = profile.name == selectedName,
+                                imageUrl = state.imageFor(profile),
+                                needsYou = profile.name in state.needsYou,
+                                unread =
+                                    if (profile.name == selectedName) {
+                                        0
+                                    } else {
+                                        BotsPresentation.unreadCount(profile, state.seenCounts[profile.name])
+                                    },
+                                preview = state.previewFor(profile),
+                                working = state.isWorking(profile, now),
+                                task = state.taskFor(profile),
+                                lastAt = state.lastMessageTime(profile),
+                                pinned = profile.name in state.pinned,
+                                onClick = { onOpenBot(profile) },
+                                onTogglePin = { onTogglePin(profile) },
+                                onEdit = { onEditBot(profile) },
                             )
                         }
-                    }
-                    items(items = if (agentsCollapsed) emptyList() else shownBots, key = { it.name }) { profile ->
-                        BotRow(
-                            modifier = Modifier.animateItem(),
-                            profile = profile,
-                            now = now,
-                            selected = profile.name == selectedName,
-                            imageUrl = state.imageFor(profile),
-                            needsYou = profile.name in state.needsYou,
-                            unread =
-                                if (profile.name == selectedName) {
-                                    0
-                                } else {
-                                    BotsPresentation.unreadCount(profile, state.seenCounts[profile.name])
-                                },
-                            preview = state.previewFor(profile),
-                            working = state.isWorking(profile, now),
-                            task = state.taskFor(profile),
-                            lastAt = state.lastMessageTime(profile),
-                            pinned = profile.name in state.pinned,
-                            onClick = { onOpenBot(profile) },
-                            onTogglePin = { onTogglePin(profile) },
-                            onEdit = { onEditBot(profile) },
-                        )
-                    }
-                    if (shownGroups.isNotEmpty()) {
-                        item(key = "label_groups") { SectionLabel(stringResource(R.string.bots_tab_groups)) }
-                        items(items = shownGroups, key = { "group_${it.name}" }) { group ->
-                            GroupRow(
-                                modifier = Modifier.animateItem(),
-                                group = group,
-                                onClick = { onOpenGroup(group) },
-                                onChangePicture = { pickPicture(group.name) },
-                                onDisband = { onDisbandGroup(group) },
-                            )
+                        if (shownGroups.isNotEmpty()) {
+                            item(key = "label_groups") { SectionLabel(stringResource(R.string.bots_tab_groups)) }
+                            items(items = shownGroups, key = { "group_${it.name}" }) { group ->
+                                GroupRow(
+                                    modifier = Modifier.animateItem(),
+                                    group = group,
+                                    onClick = { onOpenGroup(group) },
+                                    onChangePicture = { pickPicture(group.name) },
+                                    onDisband = { onDisbandGroup(group) },
+                                )
+                            }
                         }
                     }
                 }
@@ -1523,9 +1531,25 @@ private fun BotMenu(
 /** Size of a pinned bot's Toybox tile. */
 private val TOY_TILE_SIZE = 96.dp
 
+/** Smallest Toybox tile before the pinned grid scrolls instead of shrinking further. */
+private val TOY_TILE_MIN = 64.dp
+
+/** Height a Toybox grid row needs beyond its tile: orb margin, padding, name and gap. */
+private val TOY_ROW_EXTRA = 40.dp
+
+/** Toybox tile size that fits [count] tiles, two per row, into [height]; at most [TOY_TILE_SIZE]. */
+private fun toyTileSizeFor(
+    height: Dp,
+    count: Int,
+): Dp {
+    val rows = ((count + 1) / 2).coerceAtLeast(1)
+    return (height / rows - TOY_ROW_EXTRA).coerceIn(TOY_TILE_MIN, TOY_TILE_SIZE)
+}
+
 /** The room with every bot, as the first tile of the pinned row. */
 @Composable
 private fun AllBotsTile(
+    tileSize: Dp,
     onClick: () -> Unit,
     onChangePicture: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1538,14 +1562,14 @@ private fun AllBotsTile(
                 Modifier
                     .fillMaxWidth()
                     .combinedClickable(onClick = onClick, onLongClick = { menuOpen = true })
-                    .padding(vertical = 8.dp)
+                    .padding(vertical = if (LocalToybox.current) 2.dp else 8.dp)
                     .testTag("pinned_all_bots"),
         ) {
             val toy = LocalToybox.current
             BotOrb(
                 initials = "",
                 hue = BotsPalette.Muted,
-                size = if (toy) TOY_TILE_SIZE else 68.dp,
+                size = tileSize,
                 team = true,
                 imageUrl = GroupPictureStore.get(BotsPresentation.ALL_BOTS_ROOM),
                 tilt = toyTilt(BotsPresentation.ALL_BOTS_ROOM),
@@ -1556,10 +1580,11 @@ private fun AllBotsTile(
                 fontSize = if (toy) 18.sp else 15.sp,
                 fontFamily = if (toy) ToyFonts.Display else null,
                 fontWeight = if (toy) FontWeight.ExtraBold else FontWeight.Medium,
+                lineHeight = if (toy) 20.sp else TextUnit.Unspecified,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 6.dp),
+                modifier = Modifier.padding(top = if (toy) 3.dp else 6.dp),
             )
         }
         GroupPictureMenu(
@@ -1619,6 +1644,7 @@ private fun GroupPictureMenu(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PinnedBot(
+    tileSize: Dp,
     modifier: Modifier,
     profile: ProfileInfo,
     now: Double,
@@ -1642,14 +1668,14 @@ private fun PinnedBot(
                 Modifier
                     .fillMaxWidth()
                     .combinedClickable(onClick = onOpenBot, onLongClick = { menuOpen = true })
-                    .padding(vertical = 8.dp)
+                    .padding(vertical = if (toy) 2.dp else 8.dp)
                     .testTag("pinned_bot_${profile.name}"),
         ) {
             Box {
                 BotOrb(
                     initials = BotsPresentation.initials(title),
                     hue = hue,
-                    size = if (toy) TOY_TILE_SIZE else 68.dp,
+                    size = tileSize,
                     working = working,
                     presence = if (BotsPresentation.isRecent(profile, now)) OrbPresence.RECENT else OrbPresence.IDLE,
                     shapeKey = profile.botMeta()?.avatar?.shape,
@@ -1681,12 +1707,13 @@ private fun PinnedBot(
                 fontSize = if (toy) 18.sp else 15.sp,
                 fontFamily = if (toy) ToyFonts.Display else null,
                 fontWeight = if (toy) FontWeight.ExtraBold else FontWeight.Medium,
+                lineHeight = if (toy) 20.sp else TextUnit.Unspecified,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
                 modifier =
                     Modifier
-                        .padding(top = if (toy) 10.dp else 6.dp)
+                        .padding(top = if (toy) 3.dp else 6.dp)
                         .then(
                             if (toy && selected) {
                                 Modifier
@@ -2186,7 +2213,7 @@ private fun PaneTitle(
             Text(
                 text = profile.effectiveTitle,
                 color = BotsPalette.Fg,
-                fontSize = if (toy) 26.sp else 19.sp,
+                fontSize = if (toy) 22.sp else 19.sp,
                 fontFamily = if (toy) ToyFonts.Display else null,
                 fontWeight = FontWeight.ExtraBold,
                 letterSpacing = if (toy) 0.sp else (-0.4).sp,
