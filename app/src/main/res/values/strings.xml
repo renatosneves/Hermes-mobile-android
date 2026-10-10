@@ -155,6 +155,10 @@
     <string name="bots_create_group_select_bots">Select Bots (at least 2)</string>
     <string name="bots_create_group_button">Create Group</string>
     <string name="bots_tab_all">Bots</string>
+    <string name="bots_section_agents">Agents</string>
+    <string name="bots_pin">Pin to top</string>
+    <string name="bots_unpin">Unpin</string>
+    <string name="bots_edit">Edit bot</string>
     <string name="bots_tab_groups">Groups</string>
     <string name="bots_groups_empty_title">No Group Chats</string>
     <string name="bots_groups_empty_desc">Create a multi-agent group chat to let bots collaborate.</string>
@@ -1925,10 +1929,12 @@
     <string name="freeze_report_dismiss">Not now</string>
     <string name="chat_report_send">Send chat report</string>
     <string name="bots_list_hide">Hide bot list</string>
+    <string name="bots_resize_panels">Drag to resize the panels; double-tap to reset</string>
     <string name="bots_list_show">Show bot list</string>
     <string name="handoff_view_setting">Hand-off view</string>
     <string name="bots_theme_day">Day</string>
     <string name="bots_theme_night">Night</string>
+    <string name="bots_theme_charcoal">Charcoal</string>
     <string name="bots_theme_auto">Auto (follows phone)</string>
     <string name="handoff_mode_split">Side by side</string>
     <string name="handoff_mode_split_desc">Unfolded, the bot doing the work opens beside the chat. Folded, a strip shows above it.</string>

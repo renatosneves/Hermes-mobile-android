@@ -387,4 +387,37 @@ class BotsViewModelTest {
             assertEquals("Local Only Group", groups[1].name)
             assertEquals(1, groups[1].members.size)
         }
+
+    @Test
+    fun `a pinned bot moves to the pinned row and comes back when unpinned`() =
+        runTest(testDispatcher) {
+            val profiles = listOf(ProfileInfo(name = "alpha"), ProfileInfo(name = "beta"))
+            coEvery { mockApi.getProfiles() } returns Response.success(ProfilesResponse(profiles))
+            coEvery { mockApi.getActiveProfile() } returns Response.success(ActiveProfileResponse(active = "alpha"))
+            BotPinStore.all().forEach(BotPinStore::unpin)
+
+            try {
+                val viewModel = BotsViewModel(ioDispatcher = testDispatcher, autoLoad = false)
+                viewModel.loadBots()
+                advanceUntilIdle()
+
+                viewModel.togglePin("beta")
+                var state = viewModel.uiState.value
+                assertEquals(listOf("beta"), state.pinnedProfiles.map { it.name })
+                assertEquals(listOf("alpha"), state.displayProfiles.map { it.name })
+
+                // A search lists pinned bots as ordinary rows.
+                viewModel.setSearchQuery("beta")
+                state = viewModel.uiState.value
+                assertEquals(listOf("beta"), state.displayProfiles.map { it.name })
+                viewModel.setSearchQuery("")
+
+                viewModel.togglePin("beta")
+                state = viewModel.uiState.value
+                assertTrue(state.pinnedProfiles.isEmpty())
+                assertEquals(setOf("alpha", "beta"), state.displayProfiles.map { it.name }.toSet())
+            } finally {
+                BotPinStore.all().forEach(BotPinStore::unpin)
+            }
+        }
 }

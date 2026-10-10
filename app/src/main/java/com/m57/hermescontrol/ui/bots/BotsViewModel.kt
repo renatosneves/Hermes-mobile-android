@@ -73,6 +73,8 @@ data class BotsUiState(
     val seenCounts: Map<String, Int> = emptyMap(),
     /** Latest line of each bot's conversation, Telegram style, by bot name. */
     val previews: Map<String, String> = emptyMap(),
+    /** Names of the bots pinned to the top of the list, in pin order. */
+    val pinned: List<String> = emptyList(),
     /** When that latest line was said (epoch seconds), by bot name: the list's order. */
     val lastMessageAt: Map<String, Double> = emptyMap(),
     /** What each live working session is answering right now, by session key. */
@@ -249,11 +251,21 @@ data class BotsUiState(
             }
         }
 
+    /** The pinned bots that exist and are visible, in pin order. */
+    val pinnedProfiles: List<ProfileInfo>
+        get() =
+            pinned
+                .mapNotNull { name ->
+                    profiles.firstOrNull { it.name == name }
+                }.filter { showHidden || !(it.isHidden || it.name in hiddenProfiles) }
+
     val displayProfiles: List<ProfileInfo>
         get() {
             val query = searchQuery.trim().lowercase()
             return profiles
                 .filter { profile ->
+                    // Pinned bots have their own row at the top, unless a search is looking for them.
+                    if (query.isBlank() && profile.name in pinned) return@filter false
                     val isHidden = profile.isHidden || profile.name in hiddenProfiles
                     if (!showHidden && isHidden) return@filter false
                     if (query.isBlank()) return@filter true
@@ -411,6 +423,7 @@ class BotsViewModel(
      * to finish rather than started again.
      */
     private fun afterRosterLoaded(profiles: List<ProfileInfo>) {
+        _uiState.update { it.copy(pinned = BotPinStore.all()) }
         recordSeenBaselines(profiles)
         if (enrichJobs.any { it.isActive }) return
         enrichJobs =
@@ -617,6 +630,12 @@ class BotsViewModel(
 
     fun setSelectedTab(tab: BotsTab) {
         _uiState.update { it.copy(selectedTab = tab) }
+    }
+
+    /** Pins [name] to the top of the list, or unpins it when it is already there. */
+    fun togglePin(name: String) {
+        if (name in BotPinStore.all()) BotPinStore.unpin(name) else BotPinStore.pin(name)
+        _uiState.update { it.copy(pinned = BotPinStore.all()) }
     }
 
     fun toggleShowHidden() {
