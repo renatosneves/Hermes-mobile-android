@@ -147,6 +147,7 @@ import com.m57.hermescontrol.data.model.ProfileInfo
 import com.m57.hermescontrol.diagnostics.ChatTrace
 import com.m57.hermescontrol.share.ShareInbox
 import com.m57.hermescontrol.theme.BotsPalette
+import com.m57.hermescontrol.theme.BotsTheme
 import com.m57.hermescontrol.theme.DarkStyle
 import com.m57.hermescontrol.theme.LightStyle
 import com.m57.hermescontrol.theme.ThemePreference
@@ -269,7 +270,7 @@ fun BotsScreen(
     }
 
     val baseScheme = MaterialTheme.colorScheme
-    MaterialTheme(colorScheme = BotsPalette.railScheme(baseScheme)) {
+    BotsTheme(baseScheme) {
         BotsDialogs(
             viewModel = viewModel,
             state = state,
