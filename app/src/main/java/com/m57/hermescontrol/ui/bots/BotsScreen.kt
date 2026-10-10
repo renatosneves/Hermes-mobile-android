@@ -711,7 +711,9 @@ private fun BotsRail(
     val pinnedBots = if (state.searchQuery.isBlank()) state.pinnedProfiles else emptyList()
     val everyBot = bots + pinnedBots
     val working = everyBot.filter { state.isWorking(it, now) }
-    val showPinned = filter == RailFilter.ALL && pinnedBots.isNotEmpty()
+    // The room with every bot sits at the start of the pinned row, at the top.
+    val showAllRoom = filter == RailFilter.ALL && state.searchQuery.isBlank() && everyBot.size > 1
+    val showPinned = filter == RailFilter.ALL && (pinnedBots.isNotEmpty() || showAllRoom)
     var agentsCollapsed by rememberSaveable { mutableStateOf(false) }
     val groups = state.displayGroups
     val shownBots =
@@ -832,6 +834,9 @@ private fun BotsRail(
                                 contentPadding = PaddingValues(horizontal = 8.dp),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
+                                if (showAllRoom) {
+                                    item(key = "all_bots_room") { AllBotsTile(onClick = onOpenAllBots) }
+                                }
                                 items(items = pinnedBots, key = { it.name }) { profile ->
                                     PinnedBot(
                                         profile = profile,
@@ -854,19 +859,7 @@ private fun BotsRail(
                             }
                         }
                     }
-                    if (filter == RailFilter.ALL && state.searchQuery.isBlank() && everyBot.size > 1) {
-                        item(key = "all_bots_room") {
-                            GroupRow(
-                                modifier = Modifier.animateItem(),
-                                group = GroupInfo(name = stringResource(R.string.bots_all_room), members = everyBot),
-                                subtitle = stringResource(R.string.bots_all_room_hint),
-                                onClick = onOpenAllBots,
-                                onLongClick = onOpenAllBots,
-                            )
-                        }
-                    }
-                    val aboveBots =
-                        showPinned || (filter == RailFilter.ALL && state.searchQuery.isBlank() && everyBot.size > 1)
+                    val aboveBots = showPinned
                     if (shownBots.isNotEmpty() && (shownGroups.isNotEmpty() || aboveBots)) {
                         item(key = "label_bots") {
                             SectionLabel(
@@ -1308,6 +1301,33 @@ private fun BotMenu(
                 onEdit()
             },
             modifier = Modifier.testTag("bot_menu_edit"),
+        )
+    }
+}
+
+/** The room with every bot, as the first tile of the pinned row. */
+@Composable
+private fun AllBotsTile(onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier =
+            Modifier
+                .width(92.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .clickable(onClick = onClick)
+                .padding(vertical = 8.dp)
+                .testTag("pinned_all_bots"),
+    ) {
+        BotOrb(initials = "", hue = BotsPalette.Muted, size = 68.dp, team = true)
+        Text(
+            text = stringResource(R.string.bots_all_room),
+            color = BotsPalette.Muted,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 6.dp),
         )
     }
 }
