@@ -103,6 +103,9 @@ data class SessionInfo(
     // Uses LenientNullableBooleanSerializer to tolerate booleans, raw SQLite ints (0/1), and strings.
     @Serializable(with = LenientNullableBooleanSerializer::class)
     val hidden: Boolean? = null,
+    // Soft-archive flag (issue #1496): archived rows are excluded from the default list.
+    @Serializable(with = LenientNullableBooleanSerializer::class)
+    val archived: Boolean? = null,
 )
 
 @Serializable
@@ -120,6 +123,7 @@ data class SessionRenameRequest(
     val title: String? = null,
     val pinned: Boolean? = null,
     val hidden: Boolean? = null,
+    val archived: Boolean? = null,
 )
 
 @Serializable

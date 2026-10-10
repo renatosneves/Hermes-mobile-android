@@ -4,32 +4,13 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Night-navy base, as in the Bots screen -->
+    <!-- Purple, lit from the top, to set off the orange and gold mascot -->
     <path
-        android:fillColor="#0B1028"
-        android:pathData="M0,0h108v108h-108z" />
-    <!-- Magenta glow from the top, violet from the bottom corner -->
-    <path android:pathData="M0,0h108v108h-108z">
+        android:pathData="M0,0h108v108h-108z">
         <aapt:attr name="android:fillColor">
-            <gradient
-                android:centerX="54"
-                android:centerY="20"
-                android:gradientRadius="80"
-                android:type="radial">
-                <item android:color="#66E0287A" android:offset="0" />
-                <item android:color="#00E0287A" android:offset="1" />
-            </gradient>
-        </aapt:attr>
-    </path>
-    <path android:pathData="M0,0h108v108h-108z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:centerX="100"
-                android:centerY="108"
-                android:gradientRadius="70"
-                android:type="radial">
-                <item android:color="#802A1B45" android:offset="0" />
-                <item android:color="#002A1B45" android:offset="1" />
+            <gradient android:type="radial" android:centerX="54" android:centerY="36" android:gradientRadius="80">
+                <item android:color="#8A5CFF" android:offset="0" />
+                <item android:color="#2E1470" android:offset="1" />
             </gradient>
         </aapt:attr>
     </path>

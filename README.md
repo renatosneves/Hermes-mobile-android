@@ -114,6 +114,58 @@ Tap **Sign in** on the landing screen and enter the dashboard host and port. The
 - Enter your **Username** and **Password** (default `admin` / `hermes`).
 - The app logs in, stores a session cookie, and requests a WebSocket ticket automatically.
 
+### Manual HTTPS client certificates (mTLS)
+
+Open **Settings → Connection → HTTPS mTLS client certificate configuration**, or tap
+**Connections** on the first-launch landing page before signing in. Install client certificates
+in Android settings first; the app stores aliases only, never private keys.
+
+Each binding belongs to an HTTPS hostname and port across all paths and connection
+profiles. Use **Add Configuration** or **Edit Configuration**, then **Select Certificate**
+or **Change Certificate** to open Android KeyChain. A valid address, port and selected
+certificate are required to **Save**. **Delete Configuration** clears the saved binding
+without removing the system certificate. Cancelling the picker keeps the draft alias;
+leaving an edited draft asks whether to discard unsaved changes. Host/port edits
+preserve the draft certificate and invalidate pending choices.
+An editor dismissed or destroyed while the picker is open ignores its late callback.
+
+On the login screen, a failed initial `/api/status` probe offers certificate setup only
+when its HTTPS error cause chain contains an SSL exception with the exact
+received alert `TLSV1_ALERT_CERTIFICATE_REQUIRED`, `SSLV3_ALERT_BAD_CERTIFICATE`,
+`SSLV3_ALERT_UNSUPPORTED_CERTIFICATE`, `SSLV3_ALERT_CERTIFICATE_REVOKED`,
+`SSLV3_ALERT_CERTIFICATE_EXPIRED`, `SSLV3_ALERT_CERTIFICATE_UNKNOWN`, or
+`TLSV1_ALERT_UNKNOWN_CA`. Local server-trust/hostname failures and generic handshake or
+network failures do not trigger it. Missing and rejected client certificates use the same
+dialog and wording. The dialog fixes the host and port; you must
+explicitly select an installed certificate. **Save** verifies that candidate with a fresh
+TLS connection and one credential-free `GET /api/status` to that origin. Any HTTP response
+headers suffice, including 401/403; redirects are not followed. Failed verification leaves
+existing bindings unchanged and allows another selection. Cancel preserves the mTLS
+connection error. A successful save replaces any binding for that host and port and clears
+the previous connection error. Use the connection button to retry; later errors still
+appear normally. The inline notice points to **Connections** for changes.
+
+Peers and providers reporting generic failures or other error formats may not trigger this prompt; use the
+manual configuration above. Later login steps, background requests and other screens do
+not trigger it. Network requests never open the system picker or wait for selection. Missing,
+expired, revoked or incompatible keys result in no client identity, so servers requiring
+mTLS fail normally until a usable binding is saved. REST, WebSocket, images, attachments
+and audio/video share the TLS configuration. Default Android server trust and hostname
+verification remain enabled; no private CA or permissive trust policy is added.
+
+Saving (including selecting the same alias again) or deleting a configuration retires live
+TLS sockets and session contexts for the affected addresses. Retry failed requests or
+restart media playback; content already displayed or buffered may remain visible.
+Remote image memory/disk cache keys and gateway file cache keys include persistent
+identity generations and a shared cache epoch covering redirect destinations, so a late old response cannot populate the new identity's cache.
+While any binding exists, remote cache keys also include a per-launch epoch, because a
+KeyChain change made while the app was stopped cannot be observed; cached remote content is
+reused only within one app launch. Old cache entries age out under the existing cache policies. To isolate client identities,
+HTTP/2 connection coalescing across origins is disabled for the shared clients, including
+unbound origins; HTTP/2 within one origin remains enabled. A binding change also changes
+cache keys for unrelated remote resources because their redirect destinations are unknown
+before fetching. Redirects select the destination origin's saved identity only.
+
 ### Cloudflare Access and custom headers
 
 1. Enter your dashboard's HTTPS URL on the login screen.

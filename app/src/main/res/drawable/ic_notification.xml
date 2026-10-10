@@ -1,18 +1,19 @@
-<!-- Status-bar icon: the Hermes orb (ring with an H), white only as Android requires. -->
+<!-- Status-bar icon: the Hermes mascot (winged helmet over the bot) as a white silhouette, as Android requires. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
-    android:viewportWidth="60"
-    android:viewportHeight="60"
+    android:viewportWidth="70"
+    android:viewportHeight="70"
     android:tint="#FFFFFF">
-  <group android:translateX="-24" android:translateY="-24">
-    <path
-        android:pathData="M54,27 A27,27 0 1,1 53.99,27 Z"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="5"
-        android:strokeLineCap="round" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M42,40 h6.5 v10.5 h11 v-10.5 h6.5 v28 h-6.5 v-11.5 h-11 v11.5 h-6.5 z" />
-  </group>
+    <group
+        android:translateX="-19"
+        android:translateY="-14">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M37,50 C30,48 23,42 21,33 C25,36 28,37 31,37 C26,33 24,28 24,22 C29,28 33,31 36,32 C33,28 32,24 33,19 C37,26 41,32 43,44 Z M71,50 C78,48 85,42 87,33 C83,36 80,37 77,37 C82,33 84,28 84,22 C79,28 75,31 72,32 C75,28 76,24 75,19 C71,26 67,32 65,44 Z M31,58 C31,42 41,34 54,34 C67,34 77,42 77,58 C64,53 44,53 31,58 Z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M32,64 C32,52 42,46 54,46 C66,46 76,52 76,64 C76,74 66,79 54,79 C42,79 32,74 32,64 Z M54.4,64 a2.6,4.2 0 1,0 5.2,0 a2.6,4.2 0 1,0 -5.2,0 Z M63.4,63.5 a2.6,4.2 0 1,0 5.2,0 a2.6,4.2 0 1,0 -5.2,0 Z" />
+    </group>
 </vector>
