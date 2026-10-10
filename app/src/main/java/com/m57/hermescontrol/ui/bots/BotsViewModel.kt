@@ -81,9 +81,25 @@ data class BotsUiState(
     val liveTasks: Map<String, String> = emptyMap(),
     /** The chat you last moved to with each bot (see [BotChatStore]). */
     val savedChats: Map<String, SavedChat> = emptyMap(),
+    /** Bots working on a hand-off that started outside the open chat, by bot name. */
+    val workingFor: Map<String, IncomingHandoff> = emptyMap(),
 ) {
-    /** The session opened, and previewed in the list, for [profile]. */
-    fun chatFor(profile: ProfileInfo): String? = BotsPresentation.chatToOpen(profile, savedChats[profile.name])
+    /**
+     * The session opened, and previewed in the list, for [profile]: the Bot Chat a live hand-off
+     * landed in, else the chat you last used with it.
+     */
+    fun chatFor(
+        profile: ProfileInfo,
+        nowSeconds: Double = System.currentTimeMillis() / 1000.0,
+    ): String? =
+        incomingFor(profile, nowSeconds)?.sessionId
+            ?: BotsPresentation.chatToOpen(profile, savedChats[profile.name])
+
+    /** The hand-off [profile] is working on at [nowSeconds], if it is still live. */
+    fun incomingFor(
+        profile: ProfileInfo,
+        nowSeconds: Double,
+    ): IncomingHandoff? = workingFor[profile.name]?.takeIf { it.isLive(nowSeconds) }
 
     /** What [profile] is working on, when known (see [BotsPresentation.currentTask]). */
     fun taskFor(profile: ProfileInfo): String? = BotsPresentation.currentTask(profile, liveTasks)
@@ -431,7 +447,61 @@ class BotsViewModel(
                 viewModelScope.launch(ioDispatcher) { refreshNeedsYou(profiles) },
                 viewModelScope.launch(ioDispatcher) { refreshAvatars(profiles) },
                 viewModelScope.launch(ioDispatcher) { refreshPreviews(profiles) },
+                viewModelScope.launch(ioDispatcher) { refreshIncomingHandoffs(profiles) },
             )
+    }
+
+    /** The Bot Chat session and its last activity each sender was read at, so it is read once per change. */
+    private val senderKeys = mutableMapOf<String, Triple<String, Double, String?>>()
+
+    /**
+     * Which bots are working on a hand-off from elsewhere. Judged from the roster just loaded; the
+     * only request is the newest messages of a Bot Chat whose activity has changed, to read who
+     * sent the DM.
+     */
+    private suspend fun refreshIncomingHandoffs(profiles: List<ProfileInfo>) {
+        val nowSeconds = System.currentTimeMillis() / 1000.0
+        val found = mutableMapOf<String, IncomingHandoff>()
+        for (profile in profiles) {
+            val candidate = IncomingHandoffs.candidateOf(profile, nowSeconds) ?: continue
+            val sender =
+                if (candidate.kind == HandoffKind.BOT_CHAT) {
+                    senderFor(profile, candidate, profiles)
+                } else {
+                    null
+                }
+            found[profile.name] =
+                IncomingHandoff(candidate.kind, sender, candidate.sessionId, candidate.lastActive)
+        }
+        senderKeys.keys.retainAll(found.keys)
+        if (found != _uiState.value.workingFor) _uiState.update { it.copy(workingFor = found) }
+    }
+
+    private suspend fun senderFor(
+        profile: ProfileInfo,
+        candidate: HandoffCandidate,
+        roster: List<ProfileInfo>,
+    ): String? {
+        val sessionId = candidate.sessionId ?: return null
+        senderKeys[profile.name]?.let { (id, at, sender) ->
+            if (id == sessionId && at == candidate.lastActive) return sender
+        }
+        val result =
+            withTimeoutOrNull(METADATA_TIMEOUT_MS) {
+                safeApiCall(retries = 0) {
+                    ApiClient.hermesApi.getSessionMessages(
+                        sessionId,
+                        limit = SENDER_PAGE,
+                        order = "latest",
+                        profile = profile.name,
+                    )
+                }
+            }
+        // A failed read is tried again at the next refresh.
+        val page = (result as? NetworkResult.Success)?.data?.messages ?: return null
+        val sender = IncomingHandoffs.senderOf(page, roster, self = profile.name)
+        senderKeys[profile.name] = Triple(sessionId, candidate.lastActive, sender)
+        return sender
     }
 
     /**
@@ -1003,6 +1073,9 @@ private const val RPC_METHOD_NOT_FOUND = -32601
 
 /** Newest messages read per bot for its preview (tool rows sit between the text ones). */
 private const val PREVIEW_PAGE = 6
+
+/** Newest messages read to find who sent a Bot Chat DM. */
+private const val SENDER_PAGE = 12
 private const val GENERATE_TIMEOUT_MS = 180_000L
 
 /** Roster, status, preview and picture reads: short, so a slow server can't stall the list. */

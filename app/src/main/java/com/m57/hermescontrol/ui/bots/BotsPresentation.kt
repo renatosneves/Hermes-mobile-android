@@ -263,8 +263,14 @@ internal object BotsPresentation {
         return if (key(name) == key(title)) null else "@$name"
     }
 
-    /** The bot the Bots home opens on, and the one voice talks to, when you haven't picked one. */
-    const val DEFAULT_BOT = "chief-of-staff"
+    /**
+     * The bot the Bots home opens on when you haven't picked one: the one whose conversation
+     * moved last ([lastAt] gives when), else the first.
+     */
+    fun mostRecentBot(
+        profiles: List<ProfileInfo>,
+        lastAt: (ProfileInfo) -> Double?,
+    ): ProfileInfo? = profiles.maxByOrNull { lastAt(it) ?: 0.0 }
 
     /** Longest message preview kept for a row (the row shows up to three lines of it). */
     private const val PREVIEW_MAX_CHARS = 240

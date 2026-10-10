@@ -360,10 +360,14 @@ fun BotsScreen(
                 }
             }
 
-            // Nothing picked yet: open on the Chief of Staff, the bot that hands work out.
+            // Nothing picked yet: open on the bot whose conversation moved last.
             LaunchedEffect(twoPane, state.profiles.isNotEmpty()) {
                 if (twoPane && openBotName == null) {
-                    state.profiles.firstOrNull { it.name == BotsPresentation.DEFAULT_BOT }?.let(onOpenBot)
+                    BotsPresentation
+                        .mostRecentBot(
+                            state.profiles.filterNot { it.isHidden || it.name in state.hiddenProfiles },
+                            state::lastMessageTime,
+                        )?.let(onOpenBot)
                 }
             }
             // A live call carries on through a fold: keep its chat (and call screen) on show.
@@ -992,7 +996,9 @@ private fun BotsRail(
                                                                 state.seenCounts[profile.name],
                                                             )
                                                         },
-                                                    working = state.isWorking(profile, now),
+                                                    working =
+                                                        state.isWorking(profile, now) ||
+                                                            state.incomingFor(profile, now) != null,
                                                     onOpenBot = { onOpenBot(profile) },
                                                     onTogglePin = { onTogglePin(profile) },
                                                     onEditBot = { onEditBot(profile) },
@@ -1043,6 +1049,7 @@ private fun BotsRail(
                                 preview = state.previewFor(profile),
                                 working = state.isWorking(profile, now),
                                 task = state.taskFor(profile),
+                                incoming = state.incomingFor(profile, now),
                                 lastAt = state.lastMessageTime(profile),
                                 pinned = profile.name in state.pinned,
                                 onClick = { onOpenBot(profile) },
@@ -1770,6 +1777,7 @@ private fun BotRow(
     onEdit: () -> Unit,
     modifier: Modifier = Modifier,
     task: String? = null,
+    incoming: IncomingHandoff? = null,
     lastAt: Double? = null,
 ) {
     val hue = hueFor(profile)
@@ -1843,7 +1851,7 @@ private fun BotRow(
                 initials = BotsPresentation.initials(title),
                 hue = hue,
                 size = 52.dp,
-                working = working,
+                working = working || incoming != null,
                 presence = if (recent) OrbPresence.RECENT else OrbPresence.IDLE,
                 shapeKey = profile.botMeta()?.avatar?.shape,
                 imageUrl = imageUrl,
@@ -1896,6 +1904,11 @@ private fun BotRow(
                     when {
                         needsYou -> {
                             stringResource(R.string.bots_needs_you)
+                        }
+
+                        incoming != null -> {
+                            incoming.sender?.let { stringResource(R.string.bots_working_for, it) }
+                                ?: stringResource(R.string.bots_working_board_task)
                         }
 
                         working -> {

@@ -99,6 +99,8 @@
     <string name="bots_no_match">No bots match “%1$s”.</string>
     <string name="bots_more">More</string>
     <string name="bots_working">Working</string>
+    <string name="bots_working_for">Working for %1$s</string>
+    <string name="bots_working_board_task">Working on a board task</string>
     <string name="bots_working_on">Working · %1$s</string>
     <string name="bots_last_active">Active %1$s</string>
     <string name="bots_pick_one">Pick a bot to start chatting.</string>
