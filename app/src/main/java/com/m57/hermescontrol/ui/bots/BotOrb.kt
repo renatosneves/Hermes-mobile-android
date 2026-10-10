@@ -308,14 +308,14 @@ private fun ToyTile(
                     Icon(
                         imageVector = Icons.Filled.Group,
                         contentDescription = null,
-                        tint = BotsPalette.ToyOutline,
+                        tint = BotsPalette.ToyText,
                         modifier = Modifier.size(size * 0.5f),
                     )
                 } else {
                     val fontSize = with(LocalDensity.current) { (size * 0.36f).toSp() }
                     Text(
                         text = initials,
-                        color = BotsPalette.ToyOutline,
+                        color = BotsPalette.ToyText,
                         fontSize = fontSize,
                         fontFamily = ToyFonts.Display,
                         fontWeight = FontWeight.ExtraBold,

@@ -67,6 +67,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -750,6 +751,12 @@ private fun DragDivider(
     }
 }
 
+/** Fill of a selected Toybox filter pill: dark by day, light at night. */
+private fun toySelectedFill(): Color = if (BotsPalette.isToyNight) BotsPalette.ToyText else BotsPalette.ToyOutline
+
+/** Text on a selected Toybox pill (filter or bot name): white by day, dark at night. */
+private fun toySelectedText(): Color = if (BotsPalette.isToyNight) BotsPalette.ToyChatBg else BotsPalette.ToyOnAccent
+
 /** A stable tilt for a bot's Toybox tile, from -3 to 3 degrees, taken from its name. */
 private fun toyTilt(name: String): Float = ((name.hashCode() and 0x7fffffff) % 7 - 3).toFloat()
 
@@ -767,7 +774,7 @@ private fun RailIconButton(
                 modifier
                     .padding(end = 6.dp, bottom = 3.dp)
                     .size(48.dp)
-                    .toySticker(shape, BotsPalette.ToyOnAccent, depth = 3.dp)
+                    .toySticker(shape, BotsPalette.ToyWhite, depth = 3.dp)
                     .clip(shape)
                     .clickable(onClick = onClick),
             contentAlignment = Alignment.Center,
@@ -1321,7 +1328,7 @@ private val THEME_CHOICES =
         ThemeChoice(
             ThemePreference.LIGHT,
             null,
-            R.string.bots_theme_toybox,
+            R.string.bots_theme_toybox_light,
             Icons.Filled.Toys,
             "bots_theme_toybox",
             LightStyle.TOYBOX,
@@ -1339,6 +1346,13 @@ private val THEME_CHOICES =
             R.string.bots_theme_charcoal,
             Icons.Filled.Contrast,
             "bots_theme_charcoal",
+        ),
+        ThemeChoice(
+            ThemePreference.DARK,
+            DarkStyle.TOYBOX,
+            R.string.bots_theme_toybox_night,
+            Icons.Filled.NightsStay,
+            "bots_theme_toybox_night",
         ),
         ThemeChoice(
             ThemePreference.SYSTEM,
@@ -1396,12 +1410,12 @@ private fun FilterPill(
     Row(
         modifier =
             if (toy) {
-                // Selected: dark fill, no shadow; the others are white stickers with a shadow.
+                // Selected: dark fill (light at night), no shadow; the others are card-coloured stickers with a shadow.
                 Modifier
                     .padding(end = 3.dp, bottom = 3.dp)
                     .toySticker(
                         shape,
-                        if (selected) BotsPalette.ToyOutline else BotsPalette.ToyOnAccent,
+                        if (selected) toySelectedFill() else BotsPalette.ToyWhite,
                         shadow = if (selected) null else BotsPalette.ToyOutline,
                         depth = 3.dp,
                     ).clip(shape)
@@ -1421,7 +1435,7 @@ private fun FilterPill(
             label,
             color =
                 when {
-                    toy -> if (selected) BotsPalette.ToyOnAccent else BotsPalette.ToyOutline
+                    toy -> if (selected) toySelectedText() else BotsPalette.ToyText
                     selected -> BotsPalette.Fg
                     else -> BotsPalette.Muted
                 },
@@ -1434,7 +1448,7 @@ private fun FilterPill(
             count.toString(),
             color =
                 when {
-                    toy -> if (selected) BotsPalette.ToyOnAccent else BotsPalette.ToyOutline
+                    toy -> if (selected) toySelectedText() else BotsPalette.ToyText
                     accent && count > 0 -> BotsPalette.Ok
                     else -> BotsPalette.Muted
                 },
@@ -1576,7 +1590,7 @@ private fun AllBotsTile(
             )
             Text(
                 text = stringResource(R.string.bots_all_room),
-                color = if (toy) BotsPalette.ToyOutline else BotsPalette.Muted,
+                color = if (toy) BotsPalette.ToyText else BotsPalette.Muted,
                 fontSize = if (toy) 18.sp else 15.sp,
                 fontFamily = if (toy) ToyFonts.Display else null,
                 fontWeight = if (toy) FontWeight.ExtraBold else FontWeight.Medium,
@@ -1700,7 +1714,7 @@ private fun PinnedBot(
                 text = title,
                 color =
                     when {
-                        toy -> if (selected) BotsPalette.ToyOnAccent else BotsPalette.ToyOutline
+                        toy -> if (selected) toySelectedText() else BotsPalette.ToyText
                         selected -> BotsPalette.Fg
                         else -> BotsPalette.Muted
                     },
@@ -1719,7 +1733,7 @@ private fun PinnedBot(
                                 Modifier
                                     .toySticker(
                                         RoundedCornerShape(999.dp),
-                                        BotsPalette.ToyAccent,
+                                        if (BotsPalette.isToyNight) BotsPalette.ToyYellow else BotsPalette.ToyAccent,
                                         shadow = null,
                                         outline = 2.dp,
                                     ).padding(horizontal = 12.dp, vertical = 1.dp)
@@ -1783,7 +1797,7 @@ private fun BotRow(
                                     if (selected) {
                                         Modifier.toySticker(
                                             RoundedCornerShape(20.dp),
-                                            BotsPalette.ToyOnAccent,
+                                            BotsPalette.ToyWhite,
                                             depth = 3.dp,
                                         )
                                     } else {
@@ -2289,7 +2303,7 @@ private fun StatusPill(
             if (toy) {
                 Modifier
                     .padding(top = 2.dp, end = 3.dp, bottom = 3.dp)
-                    .toySticker(shape, BotsPalette.ToyOnAccent, depth = 3.dp, outline = 2.dp)
+                    .toySticker(shape, BotsPalette.ToyWhite, depth = 3.dp, outline = 2.dp)
                     .padding(horizontal = 8.dp, vertical = 1.dp)
             } else {
                 Modifier
@@ -2331,7 +2345,7 @@ private fun StatusPill(
         Spacer(Modifier.width(3.dp))
         Text(
             text = text,
-            color = if (toy) BotsPalette.ToyOutline else color,
+            color = if (toy) BotsPalette.ToyText else color,
             fontSize = if (toy) 12.sp else 12.5.sp,
             fontWeight = if (toy) FontWeight.ExtraBold else FontWeight.Medium,
             maxLines = 1,

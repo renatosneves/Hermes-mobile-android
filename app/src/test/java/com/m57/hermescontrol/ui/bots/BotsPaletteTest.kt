@@ -33,4 +33,14 @@ class BotsPaletteTest {
         BotsPalette.darkStyle = DarkStyle.CHARCOAL
         assertEquals(Color(0xFF1E1E1F), BotsPalette.Rail)
     }
+
+    @Test
+    fun toyboxNightIsToyboxWithLightText() {
+        BotsPalette.isDark = true
+        BotsPalette.darkStyle = DarkStyle.TOYBOX
+        assertEquals(true, BotsPalette.isToybox)
+        assertEquals(true, BotsPalette.isToyNight)
+        assertEquals(Color(0xFFF3EEFF), BotsPalette.ToyText)
+        assertEquals(Color(0xFF2A2147), BotsPalette.ToyWhite)
+    }
 }

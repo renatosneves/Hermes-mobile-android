@@ -264,7 +264,7 @@ private fun ToyStatusPill(
                 )
             }
             if (icon != null) {
-                Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = BotsPalette.ToyOutline)
+                Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = BotsPalette.ToyText)
             }
             if (text != null) {
                 Text(
@@ -274,7 +274,7 @@ private fun ToyStatusPill(
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 14.sp,
                         ),
-                    color = BotsPalette.ToyOutline,
+                    color = BotsPalette.ToyText,
                     modifier = Modifier.padding(start = 4.dp),
                 )
             }

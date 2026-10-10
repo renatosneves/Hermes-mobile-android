@@ -92,7 +92,7 @@ internal fun FullBleedAgentMessage(
     modifier: Modifier = Modifier,
 ) {
     val toybox = LocalToybox.current
-    val textColor = if (toybox) BotsPalette.ToyOutline else MaterialTheme.colorScheme.onSurface
+    val textColor = if (toybox) BotsPalette.ToyText else MaterialTheme.colorScheme.onSurface
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     // Copy feedback: briefly show ✓ then revert

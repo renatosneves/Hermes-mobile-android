@@ -446,7 +446,7 @@ fun ChatInputBar(
                                     },
                                 textStyle =
                                     toyInputStyle(toybox).copy(
-                                        color = if (toybox) BotsPalette.ToyOutline else palette.text,
+                                        color = if (toybox) BotsPalette.ToyText else palette.text,
                                         textAlign = if (isInputRtl) TextAlign.Right else TextAlign.Left,
                                         textDirection = if (isInputRtl) TextDirection.Rtl else TextDirection.Ltr,
                                     ),

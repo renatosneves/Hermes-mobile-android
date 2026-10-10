@@ -142,7 +142,13 @@ fun ComposerToolbar(
     val toybox = LocalToybox.current
     // Toybox controls are chunkier stickers.
     val controlSize = if (toybox) ToyControlSize else ControlSize
-    val onActionColor = if (toybox) BotsPalette.ToyOnAccent else palette.onAction
+    // White on the orange button by day, dark at night (as on the design board).
+    val onActionColor =
+        when {
+            toybox && BotsPalette.isToyNight -> BotsPalette.ToyChatBg
+            toybox -> BotsPalette.ToyOnAccent
+            else -> palette.onAction
+        }
     val reasoningDisabledForModel = supportsReasoning == false
     val canDisable = canDisableReasoning
 
@@ -298,7 +304,7 @@ fun ComposerToolbar(
                     Text(
                         text = modelLabel,
                         style = toyLabelStyle(toybox),
-                        color = if (toybox) BotsPalette.ToyOutline else palette.onControl,
+                        color = if (toybox) BotsPalette.ToyText else palette.onControl,
                         maxLines = 1,
                         softWrap = false,
                         overflow = TextOverflow.Clip,
@@ -555,7 +561,7 @@ fun ComposerToolbar(
                         if (toybox) {
                             IconButtonDefaults.filledIconButtonColors(
                                 containerColor = Color.Transparent,
-                                contentColor = BotsPalette.ToyOutline,
+                                contentColor = BotsPalette.ToyText,
                             )
                         } else {
                             flatIconButtonColors(palette)
@@ -612,7 +618,7 @@ fun ComposerToolbar(
                         tint =
                             when {
                                 !isConnected -> micColors.disabledContentColor
-                                toybox && !isListening -> BotsPalette.ToyOutline
+                                toybox && !isListening -> BotsPalette.ToyText
                                 else -> micColors.contentColor
                             },
                     )

@@ -40,6 +40,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -175,8 +176,19 @@ fun HermesScaffold(
     val gestureController = LocalDrawerGestureController.current
     SideEffect { gestureController?.reconcile(drawerGesturesEnabled) }
     val toybox = LocalToybox.current
-    val barColor = if (toybox) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
-    val barContentColor = if (toybox) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+    // Toybox night darkens the bot colour so the bar sits well on the plum background, with light text.
+    val barColor =
+        when {
+            BotsPalette.isToyNight && toybox -> lerp(MaterialTheme.colorScheme.primary, BotsPalette.ToyOutline, 0.45f)
+            toybox -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.surface
+        }
+    val barContentColor =
+        when {
+            BotsPalette.isToyNight && toybox -> BotsPalette.ToyText
+            toybox -> MaterialTheme.colorScheme.onPrimary
+            else -> MaterialTheme.colorScheme.onSurface
+        }
 
     val scrollBehavior =
         if (pinTopBar) {
@@ -320,7 +332,7 @@ fun TopBarIconButton(
                 .clickable(role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        CompositionLocalProvider(LocalContentColor provides BotsPalette.ToyOutline, content = content)
+        CompositionLocalProvider(LocalContentColor provides BotsPalette.ToyText, content = content)
     }
 }
 

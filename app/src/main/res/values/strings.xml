@@ -1904,7 +1904,8 @@
     <string name="bots_theme_day">Day</string>
     <string name="bots_theme_night">Night</string>
     <string name="bots_theme_charcoal">Charcoal</string>
-    <string name="bots_theme_toybox">Toybox</string>
+    <string name="bots_theme_toybox_light">Toybox light</string>
+    <string name="bots_theme_toybox_night">Toybox night</string>
     <string name="bots_theme_auto">Auto (follows phone)</string>
     <string name="bots_size_small">Small</string>
     <string name="bots_size_default">Default</string>

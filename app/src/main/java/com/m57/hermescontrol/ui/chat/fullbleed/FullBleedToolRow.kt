@@ -101,7 +101,13 @@ internal fun ToolStepsSummary(
     val running = steps.lastOrNull { it.isToolRunning }
     val failed = steps.count { it.toolStatus == ToolStatus.FAILED }
     val toybox = LocalToybox.current
-    val muted = if (toybox) BotsPalette.ToyOutline else MaterialTheme.colorScheme.onSurfaceVariant
+    val night = toybox && BotsPalette.isToyNight
+    val muted =
+        when {
+            night -> BotsPalette.ToyStepText
+            toybox -> BotsPalette.ToyOutline
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        }
     val toyShape = RoundedCornerShape(16.dp)
     Row(
         modifier =
@@ -109,10 +115,15 @@ internal fun ToolStepsSummary(
                 .padding(horizontal = 16.dp)
                 .then(
                     if (toybox) {
-                        // A yellow tag with a dashed outline.
+                        // A yellow tag with a dashed outline (a yellow outline at night).
                         Modifier
-                            .toySticker(toyShape, BotsPalette.ToyStep, shadow = null, dashed = true)
-                            .clip(toyShape)
+                            .toySticker(
+                                toyShape,
+                                BotsPalette.ToyStep,
+                                shadow = null,
+                                outlineColor = if (night) BotsPalette.ToyYellow else BotsPalette.ToyOutline,
+                                dashed = true,
+                            ).clip(toyShape)
                             .clickable(onClick = onToggle)
                             .heightIn(min = 44.dp)
                             .padding(horizontal = 14.dp, vertical = 6.dp)
