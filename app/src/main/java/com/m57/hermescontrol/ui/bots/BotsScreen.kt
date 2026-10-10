@@ -70,6 +70,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Toys
 import androidx.compose.material.icons.filled.VerticalSplit
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -147,6 +148,7 @@ import com.m57.hermescontrol.diagnostics.ChatTrace
 import com.m57.hermescontrol.share.ShareInbox
 import com.m57.hermescontrol.theme.BotsPalette
 import com.m57.hermescontrol.theme.DarkStyle
+import com.m57.hermescontrol.theme.LightStyle
 import com.m57.hermescontrol.theme.ThemePreference
 import com.m57.hermescontrol.ui.chat.ChatScreen
 import com.m57.hermescontrol.ui.chat.ChatViewModel
@@ -1161,6 +1163,11 @@ private fun RailHeader(
                                     BotsPalette.darkStyle == choice.style
                             }
 
+                            ThemePreference.LIGHT -> {
+                                theme == ThemePreference.LIGHT &&
+                                    BotsPalette.lightStyle == choice.lightStyle
+                            }
+
                             else -> {
                                 theme == choice.pref
                             }
@@ -1175,6 +1182,7 @@ private fun RailHeader(
                             menuOpen = false
                             AuthManager.setThemePreference(choice.pref)
                             choice.style?.let { BotsThemeStore.setDarkStyle(it) }
+                            choice.lightStyle?.let { BotsThemeStore.setLightStyle(it) }
                         },
                         modifier = Modifier.testTag(choice.tag),
                     )
@@ -1225,11 +1233,27 @@ private data class ThemeChoice(
     val label: Int,
     val icon: ImageVector,
     val tag: String,
+    val lightStyle: LightStyle? = null,
 )
 
 private val THEME_CHOICES =
     listOf(
-        ThemeChoice(ThemePreference.LIGHT, null, R.string.bots_theme_day, Icons.Filled.LightMode, "bots_theme_light"),
+        ThemeChoice(
+            ThemePreference.LIGHT,
+            null,
+            R.string.bots_theme_day,
+            Icons.Filled.LightMode,
+            "bots_theme_light",
+            LightStyle.PLAIN,
+        ),
+        ThemeChoice(
+            ThemePreference.LIGHT,
+            null,
+            R.string.bots_theme_toybox,
+            Icons.Filled.Toys,
+            "bots_theme_toybox",
+            LightStyle.TOYBOX,
+        ),
         ThemeChoice(
             ThemePreference.DARK,
             DarkStyle.NAVY,
@@ -1421,7 +1445,6 @@ private fun AllBotsTile(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
                     .combinedClickable(onClick = onClick, onLongClick = { menuOpen = true })
                     .padding(vertical = 8.dp)
                     .testTag("pinned_all_bots"),
@@ -1522,7 +1545,6 @@ private fun PinnedBot(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
                     .combinedClickable(onClick = onOpenBot, onLongClick = { menuOpen = true })
                     .padding(vertical = 8.dp)
                     .testTag("pinned_bot_${profile.name}"),
@@ -1602,13 +1624,14 @@ private fun BotRow(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .clip(shape)
+                    // No clip: a picture that breaks out of its orb may spill past the row.
                     .background(
                         when {
                             selected -> Brush.horizontalGradient(listOf(hue.copy(alpha = 0.2f), Color.Transparent))
                             needsYou -> Brush.horizontalGradient(listOf(accent.copy(alpha = 0.1f), Color.Transparent))
                             else -> SolidColor(Color.Transparent)
                         },
+                        shape,
                     ).drawBehind {
                         if (selected || needsYou) {
                             drawRoundRect(
@@ -1785,7 +1808,6 @@ private fun GroupRow(
         modifier =
             modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
                 .combinedClickable(onClick = onClick, onLongClick = { menuOpen = true })
                 .padding(start = 8.dp, end = 12.dp, top = 10.dp, bottom = 10.dp)
                 .testTag("group_row_${group.name}"),

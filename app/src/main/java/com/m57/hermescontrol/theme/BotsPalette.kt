@@ -9,6 +9,9 @@ import androidx.compose.ui.graphics.Color
 /** The dark look of the Bots home. */
 enum class DarkStyle { NAVY, CHARCOAL }
 
+/** The light look of the Bots home: plain blue-white, or Toybox (soft lilac with candy accents, to suit the cartoon avatars). */
+enum class LightStyle { PLAIN, TOYBOX }
+
 /**
  * Palette for the Grok-style Bots home (bot rail plus conversation pane): deep navy or neutral
  * charcoal at night (see [DarkStyle]), blue-white by day. The bot hues are the same in all of them.
@@ -20,12 +23,17 @@ object BotsPalette {
     /** Which dark look is used at night: the original navy or neutral charcoal. */
     var darkStyle by mutableStateOf(DarkStyle.NAVY)
 
+    /** Which light look is used by day: plain or Toybox. */
+    var lightStyle by mutableStateOf(LightStyle.PLAIN)
+
     private fun pick(
         dark: Color,
         light: Color,
         charcoal: Color = dark,
+        toybox: Color = light,
     ): Color =
         when {
+            !isDark && lightStyle == LightStyle.TOYBOX -> toybox
             !isDark -> light
             darkStyle == DarkStyle.CHARCOAL -> charcoal
             else -> dark
@@ -42,84 +50,98 @@ object BotsPalette {
             Color(0xFF0A0F24),
             Color(0xFFF3F5FA),
             Color(0xFF0F0F10),
+            Color(0xFFF6F2FF),
         )
     val Rail get() =
         pick(
             Color(0xFF0C1230),
             Color(0xFFEAEEF7),
             Color(0xFF1E1E1F),
+            Color(0xFFEEE7FF),
         )
     val PaneTop get() =
         pick(
             Color(0xFF0E1430),
             Color(0xFFFBFCFE),
             Color(0xFF171718),
+            Color(0xFFFBF9FF),
         )
     val PaneBottom get() =
         pick(
             Color(0xFF0B1028),
             Color(0xFFF3F5FA),
             Color(0xFF141415),
+            Color(0xFFF3EEFF),
         )
     val Deck get() =
         pick(
             Color(0xFF121936),
             Color(0xFFFFFFFF),
             Color(0xFF242426),
+            Color(0xFFFFFFFF),
         )
     val Deck2 get() =
         pick(
             Color(0xFF1A2247),
             Color(0xFFEEF1F8),
             Color(0xFF2D2D30),
+            Color(0xFFE9E0FF),
         )
     val Deck3 get() =
         pick(
             Color(0xFF222B57),
             Color(0xFFDCE3F7),
             Color(0xFF3A3A3D),
+            Color(0xFFD8CBFF),
         )
     val Line get() =
         pick(
             Color(0xFF2A3469),
             Color(0xFFD6DCEA),
             Color(0xFF333336),
+            Color(0xFFDDD2F6),
         )
     val Fg get() =
         pick(
             Color(0xFFEAEDFF),
             Color(0xFF141A33),
             Color(0xFFF2F2F3),
+            Color(0xFF2A1B4D),
         )
     val Muted get() =
         pick(
             Color(0xFF8E97C9),
             Color(0xFF535C82),
             Color(0xFFA3A3A8),
+            Color(0xFF655592),
         )
     val Faint get() =
         pick(
             Color(0xFF5E6799),
             Color(0xFF68709A),
             Color(0xFF7C7C82),
+            Color(0xFF8A7BB2),
         )
     val Idle get() =
         pick(
             Color(0xFF4A5388),
             Color(0xFFA3ABCB),
             Color(0xFF56565C),
+            Color(0xFFC2B8DD),
         )
     val Ok get() =
         pick(
             Color(0xFF5FE0A8),
             Color(0xFF14875A),
             Color(0xFF5FE0A8),
+            Color(0xFF12925E),
         )
     val You get() =
         pick(
             Color(0xFFFFB547),
             Color(0xFFB45F00),
             Color(0xFFFFB547),
+            Color(0xFFE8700C),
         )
 
     /** "Needs you": a bot waiting on an approval or an answer. */
@@ -128,6 +150,7 @@ object BotsPalette {
             Color(0xFFFFB547),
             Color(0xFFB45F00),
             Color(0xFFFFB547),
+            Color(0xFFE8590C),
         )
 
     /** Gateway unreachable. */
@@ -136,18 +159,21 @@ object BotsPalette {
             Color(0xFFFF6B6B),
             Color(0xFFC92A2A),
             Color(0xFFFF6B6B),
+            Color(0xFFD6336C),
         )
     val GlowTop get() =
         pick(
             Color(0xFF1B2458),
             Color(0xFFE3E9FB),
             Color(0xFF1E1E1F),
+            Color(0xFFFFE6CC),
         )
     val GlowBottom get() =
         pick(
             Color(0xFF2A1B45),
             Color(0xFFF1E6F5),
             Color(0xFF171718),
+            Color(0xFFDDF0FF),
         )
 
     /** One hue per bot, picked by a stable hash of its handle. */
