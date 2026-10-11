@@ -11,6 +11,7 @@ import com.m57.hermescontrol.ui.chat.StreamingState
 import com.m57.hermescontrol.ui.chat.VaultCodePromptUi
 import com.m57.hermescontrol.ui.chat.VaultSaveLoginPromptUi
 import com.m57.hermescontrol.ui.chat.VaultUnlockPromptUi
+import com.m57.hermescontrol.ui.chat.messagesWithoutEchoedSends
 import com.m57.hermescontrol.ui.chat.messagesWithoutUnconfirmedReceipts
 import com.m57.hermescontrol.ui.chat.messagesWithoutUnsentQueue
 
@@ -56,9 +57,11 @@ data class TranscriptUiState(
                     if (historical) {
                         timeline.historyMessages ?: chat.messages
                     } else {
-                        messagesWithoutUnsentQueue(
-                            messagesWithoutUnconfirmedReceipts(chat.messages, chat.pendingSends),
-                            chat.pendingSends,
+                        messagesWithoutEchoedSends(
+                            messagesWithoutUnsentQueue(
+                                messagesWithoutUnconfirmedReceipts(chat.messages, chat.pendingSends),
+                                chat.pendingSends,
+                            ),
                         )
                     },
                 streamingState = if (historical) StreamingState() else streaming,
