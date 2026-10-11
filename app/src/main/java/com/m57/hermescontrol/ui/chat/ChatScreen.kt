@@ -266,8 +266,8 @@ fun ChatScreen(
     val speakingMessageId by speechController.speakingId.collectAsStateWithLifecycle()
     val dataScope by AuthManager.dataScopeFlow.collectAsStateWithLifecycle()
     val activeSessionId by ActiveSessionHolder.activeSessionId.collectAsStateWithLifecycle()
-    val likedStore = remember(context) { LikedMessagesStore.from(context) }
-    val likedKeys by likedStore.liked.collectAsStateWithLifecycle()
+    val reactionsStore = remember(context) { MessageReactionsStore.from(context) }
+    val reactions by reactionsStore.reactions.collectAsStateWithLifecycle()
     val likeSessionId = activeSessionId.orEmpty()
     var replyTo by remember(activeSessionId) { mutableStateOf<ReplyTarget?>(null) }
     val listState = rememberLazyListState(prefetchStrategy = ChatTimelineNoPrefetchStrategy)
@@ -891,7 +891,30 @@ fun ChatScreen(
                                             excerpt = replyExcerpt(message.content),
                                         )
                                 },
-                                onToggleLike = { message -> likedStore.toggle(likeKey(likeSessionId, message)) },
+                                onReact = { message, emoji ->
+                                    reactionsStore.set(likeKey(likeSessionId, message), emoji)
+                                },
+                                onDecision = { message, approve ->
+                                    val sent =
+                                        viewModel.sendMessage(
+                                            buildReplyText(
+                                                ReplyTarget(fromBot = true, excerpt = replyExcerpt(message.content)),
+                                                context.getString(
+                                                    if (approve) {
+                                                        R.string.chat_decision_approved
+                                                    } else {
+                                                        R.string.chat_decision_rejected
+                                                    },
+                                                ),
+                                            ),
+                                        )
+                                    // Only a decision that actually went to the bot earns its chip.
+                                    if (sent) {
+                                        val decision =
+                                            if (approve) MessageReactionsStore.APPROVE else MessageReactionsStore.REJECT
+                                        reactionsStore.set(likeKey(likeSessionId, message), decision)
+                                    }
+                                },
                                 onToggleSpeak = { message ->
                                     val scopeKey = "${dataScope?.inMemoryKey(localKey = activeSessionId ?: "none")}"
                                     speechController.toggle(
@@ -907,7 +930,7 @@ fun ChatScreen(
                         listState = listState,
                         scrollController = scrollController,
                         likeSessionId = likeSessionId,
-                        likedKeys = likedKeys,
+                        reactions = reactions,
                         replyErrorContent =
                             state.replyFailure?.takeUnless { timelineState.isHistorical }?.let { failure ->
                                 {

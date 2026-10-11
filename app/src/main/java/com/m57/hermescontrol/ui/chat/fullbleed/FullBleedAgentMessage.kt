@@ -2,32 +2,38 @@ package com.m57.hermescontrol.ui.chat.fullbleed
 
 import android.content.ClipData
 import android.text.format.DateFormat
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.ThumbUp
-import androidx.compose.material.icons.outlined.ThumbUp
+import androidx.compose.material.icons.outlined.AddReaction
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -35,12 +41,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -49,11 +58,13 @@ import com.m57.hermescontrol.data.model.Attachment
 import com.m57.hermescontrol.data.model.MessageReaction
 import com.m57.hermescontrol.theme.BotsPalette
 import com.m57.hermescontrol.theme.LocalToybox
+import com.m57.hermescontrol.theme.ToyFonts
 import com.m57.hermescontrol.theme.toySticker
 import com.m57.hermescontrol.ui.chat.ChatMessage
 import com.m57.hermescontrol.ui.chat.ImageViewerModel
 import com.m57.hermescontrol.ui.chat.InlineAttachment
 import com.m57.hermescontrol.ui.chat.MarkdownText
+import com.m57.hermescontrol.ui.chat.MessageReactionsStore
 import com.m57.hermescontrol.ui.chat.MessageSegment
 import com.m57.hermescontrol.ui.chat.TokenEstimator
 import com.m57.hermescontrol.ui.chat.components.MessageReactionChips
@@ -91,8 +102,9 @@ internal fun FullBleedAgentMessage(
     isSpeaking: Boolean = false,
     onToggleSpeak: (() -> Unit)? = null,
     onReply: (() -> Unit)? = null,
-    isLiked: Boolean = false,
-    onToggleLike: (() -> Unit)? = null,
+    reaction: String? = null,
+    onReact: ((String?) -> Unit)? = null,
+    onDecision: ((Boolean) -> Unit)? = null,
     messageStatsEnabled: Boolean = false,
     showAssistantMessageTokens: Boolean = true,
     showTokensPerSecond: Boolean = true,
@@ -104,6 +116,8 @@ internal fun FullBleedAgentMessage(
     val scope = rememberCoroutineScope()
     // Copy feedback: briefly show ✓ then revert
     var copied by rememberCopyFeedback()
+    var menuOpen by remember { mutableStateOf(false) }
+    val reactionDescription = reaction?.let { stringResource(R.string.content_desc_reaction, it) }.orEmpty()
 
     Column(
         modifier =
@@ -223,7 +237,13 @@ internal fun FullBleedAgentMessage(
 
                 if (!message.isStreaming) {
                     MessageReactionChips(
-                        if (isLiked) message.reactions + MessageReaction("👍", "you") else message.reactions,
+                        if (reaction !=
+                            null
+                        ) {
+                            message.reactions + MessageReaction(reaction, "you")
+                        } else {
+                            message.reactions
+                        },
                         Modifier.padding(top = 2.dp),
                     )
                 }
@@ -237,43 +257,73 @@ internal fun FullBleedAgentMessage(
                         messageStatsEnabled && showTokensPerSecond &&
                             message.tps != null && message.tps > 0.0
                     FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                         itemVerticalAlignment = Alignment.CenterVertically,
                     ) {
-                        IconButton(
+                        if (onReply != null) {
+                            ActionPill(onClick = onReply, tag = "fullbleed_reply", yellow = true) {
+                                PillLabel(stringResource(R.string.chat_action_reply))
+                            }
+                        }
+                        ActionPill(
                             onClick = {
                                 scope.launch {
                                     clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(null, message.content)))
                                 }
                                 copied = true
                             },
-                            modifier = Modifier.size(28.dp).testTag("fullbleed_copy"),
+                            tag = "fullbleed_copy",
                         ) {
                             Icon(
                                 imageVector = if (copied) Icons.Filled.Check else Icons.Filled.ContentCopy,
-                                contentDescription = stringResource(R.string.content_desc_copy),
-                                modifier = Modifier.size(14.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = pillContent(),
                             )
+                            PillLabel(stringResource(R.string.chat_action_copy))
                         }
-                        if (onReply != null) {
-                            IconButton(
-                                onClick = onReply,
-                                modifier = Modifier.size(28.dp).testTag("fullbleed_reply"),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Reply,
-                                    contentDescription = stringResource(R.string.content_desc_reply),
-                                    modifier = Modifier.size(14.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        if (onReact != null) {
+                            Box {
+                                ActionPill(onClick = { menuOpen = true }, tag = "fullbleed_react") {
+                                    if (reaction != null) {
+                                        Text(
+                                            text = reaction,
+                                            fontSize = 20.sp,
+                                            modifier = Modifier.semantics { contentDescription = reactionDescription },
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Outlined.AddReaction,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(20.dp),
+                                            tint = pillContent(),
+                                        )
+                                        PillLabel(stringResource(R.string.chat_action_react))
+                                    }
+                                }
+                                ReactionMenu(
+                                    expanded = menuOpen,
+                                    onDismiss = { menuOpen = false },
+                                    selected = reaction,
+                                    onReact = { emoji ->
+                                        menuOpen = false
+                                        onReact(if (emoji == reaction) null else emoji)
+                                    },
+                                    onDecision =
+                                        onDecision?.let { decide ->
+                                            { approve ->
+                                                menuOpen = false
+                                                decide(approve)
+                                            }
+                                        },
                                 )
                             }
                         }
                         if (onToggleSpeak != null) {
                             IconButton(
                                 onClick = onToggleSpeak,
-                                modifier = Modifier.size(28.dp).testTag("fullbleed_speak"),
+                                modifier = Modifier.size(48.dp).testTag("fullbleed_speak"),
                             ) {
                                 Icon(
                                     imageVector =
@@ -290,29 +340,8 @@ internal fun FullBleedAgentMessage(
                                                 R.string.content_desc_speak
                                             },
                                         ),
-                                    modifier = Modifier.size(14.dp),
+                                    modifier = Modifier.size(20.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                        if (onToggleLike != null) {
-                            IconButton(
-                                onClick = onToggleLike,
-                                modifier = Modifier.size(28.dp).testTag("fullbleed_like"),
-                            ) {
-                                Icon(
-                                    imageVector = if (isLiked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
-                                    contentDescription =
-                                        stringResource(
-                                            if (isLiked) R.string.content_desc_unlike else R.string.content_desc_like,
-                                        ),
-                                    modifier = Modifier.size(14.dp),
-                                    tint =
-                                        if (isLiked) {
-                                            if (toybox) BotsPalette.ToyAccent else MaterialTheme.colorScheme.primary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        },
                                 )
                             }
                         }
@@ -349,6 +378,132 @@ internal fun FullBleedAgentMessage(
             }
         }
     }
+}
+
+/**
+ * Reaction picker for a bot message: a row of personal emoji (the chosen one is highlighted), then
+ * Approve and Reject when [onDecision] is set. Drawn as a sticker card in Toybox.
+ */
+@Composable
+private fun ReactionMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    selected: String?,
+    onReact: (String) -> Unit,
+    onDecision: ((Boolean) -> Unit)?,
+) {
+    val toybox = LocalToybox.current
+    val shape: Shape = RoundedCornerShape(if (toybox) 18.dp else 12.dp)
+    val textColor = if (toybox) BotsPalette.ToyText else MaterialTheme.colorScheme.onSurface
+    val highlight = if (toybox) BotsPalette.ToyAccent else MaterialTheme.colorScheme.primary
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag("fullbleed_react_menu"),
+        shape = shape,
+        containerColor = if (toybox) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = if (toybox) 0.dp else 3.dp,
+        shadowElevation = if (toybox) 0.dp else 6.dp,
+    ) {
+        Column(
+            modifier =
+                if (toybox) {
+                    Modifier.padding(end = 4.dp, bottom = 4.dp).toySticker(shape, BotsPalette.ToyWhite).padding(4.dp)
+                } else {
+                    Modifier
+                },
+        ) {
+            Row(modifier = Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                MessageReactionsStore.PERSONAL.forEach { emoji ->
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier =
+                            Modifier
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .then(
+                                    if (emoji == selected) {
+                                        Modifier.background(highlight.copy(alpha = 0.2f))
+                                    } else {
+                                        Modifier
+                                    },
+                                ).clickable { onReact(emoji) }
+                                .testTag("fullbleed_react_$emoji"),
+                    ) {
+                        Text(text = emoji, fontSize = 24.sp)
+                    }
+                }
+            }
+            if (onDecision != null) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.chat_reaction_approve), color = textColor) },
+                    onClick = { onDecision(true) },
+                    modifier = Modifier.testTag("fullbleed_approve"),
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.chat_reaction_reject), color = textColor) },
+                    onClick = { onDecision(false) },
+                    modifier = Modifier.testTag("fullbleed_reject"),
+                )
+            }
+        }
+    }
+}
+
+/** Labelled action pill under a bot message; a yellow sticker in Toybox, a tonal surface otherwise. */
+@Composable
+private fun ActionPill(
+    onClick: () -> Unit,
+    tag: String,
+    yellow: Boolean = false,
+    content: @Composable RowScope.() -> Unit,
+) {
+    val toybox = LocalToybox.current
+    val shape = RoundedCornerShape(if (toybox) 24.dp else 20.dp)
+    val surface =
+        if (toybox) {
+            Modifier.padding(end = 3.dp, bottom = 3.dp).toySticker(
+                shape,
+                if (yellow) BotsPalette.ToyYellow else BotsPalette.ToyWhite,
+                depth = 3.dp,
+                outline = 2.dp,
+            )
+        } else {
+            Modifier.clip(shape).background(MaterialTheme.colorScheme.surfaceVariant)
+        }
+    Row(
+        modifier =
+            Modifier
+                .then(surface)
+                .clip(shape)
+                .clickable(onClick = onClick)
+                .heightIn(min = 48.dp)
+                .padding(horizontal = 16.dp)
+                .testTag(tag),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        content = content,
+    )
+}
+
+@Composable
+private fun pillContent(): Color =
+    if (LocalToybox.current) BotsPalette.ToyText else MaterialTheme.colorScheme.onSurfaceVariant
+
+@Composable
+private fun PillLabel(text: String) {
+    val toybox = LocalToybox.current
+    Text(
+        text = text,
+        style =
+            if (toybox) {
+                MaterialTheme.typography.labelMedium.copy(fontFamily = ToyFonts.Body, fontWeight = FontWeight.ExtraBold)
+            } else {
+                MaterialTheme.typography.labelMedium
+            },
+        color = pillContent(),
+        maxLines = 1,
+    )
 }
 
 @Composable

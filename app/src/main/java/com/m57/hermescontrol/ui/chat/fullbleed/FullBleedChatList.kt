@@ -101,7 +101,7 @@ fun FullBleedChatList(
     scrollController: ChatScrollController,
     replyErrorContent: (@Composable () -> Unit)? = null,
     likeSessionId: String = "",
-    likedKeys: Set<String> = emptySet(),
+    reactions: Map<String, String> = emptyMap(),
 ) {
     val messages = transcript.messages
     val streamingState = transcript.streamingState
@@ -518,11 +518,20 @@ fun FullBleedChatList(
                                                                     actions.onReply?.let { reply ->
                                                                         { reply(proseMessage) }
                                                                     },
-                                                                isLiked =
-                                                                    likeKey(likeSessionId, proseMessage) in likedKeys,
-                                                                onToggleLike =
-                                                                    actions.onToggleLike?.let { like ->
-                                                                        { like(proseMessage) }
+                                                                reaction =
+                                                                    reactions[
+                                                                        likeKey(
+                                                                            likeSessionId,
+                                                                            proseMessage,
+                                                                        ),
+                                                                    ],
+                                                                onReact =
+                                                                    actions.onReact?.let { react ->
+                                                                        { emoji -> react(proseMessage, emoji) }
+                                                                    },
+                                                                onDecision =
+                                                                    actions.onDecision?.let { decide ->
+                                                                        { approve -> decide(proseMessage, approve) }
                                                                     },
                                                                 messageStatsEnabled = messageStatsEnabled,
                                                                 showAssistantMessageTokens = showAssistantMessageTokens,

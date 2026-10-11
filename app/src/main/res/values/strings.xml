@@ -291,8 +291,15 @@
     <string name="content_desc_scroll_to_bottom">Scroll to bottom</string>
     <string name="content_desc_copy">Copy</string>
     <string name="content_desc_reply">Reply</string>
-    <string name="content_desc_like">Like</string>
-    <string name="content_desc_unlike">Remove like</string>
+    <string name="chat_action_reply">↩ Reply</string>
+    <string name="chat_action_copy">Copy</string>
+    <string name="chat_action_react">React</string>
+    <string name="content_desc_react">React</string>
+    <string name="content_desc_reaction">Reaction %1$s, tap to change</string>
+    <string name="chat_reaction_approve">✅ Approve</string>
+    <string name="chat_reaction_reject">❌ Reject</string>
+    <string name="chat_decision_approved">✅ Approved — go ahead.</string>
+    <string name="chat_decision_rejected">❌ Rejected — don\'t do this.</string>
     <string name="chat_replying_to_bot">Replying to Bot</string>
     <string name="chat_replying_to_self">Replying to yourself</string>
     <string name="content_desc_cancel_reply">Cancel reply</string>
