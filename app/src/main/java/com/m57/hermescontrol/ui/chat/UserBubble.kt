@@ -12,8 +12,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -22,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Done
@@ -53,6 +56,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -87,6 +91,7 @@ fun UserBubble(
     openingAttachmentPath: String? = null,
     canSaveAttachment: Boolean = true,
     onImageClick: (ImageViewerModel) -> Unit = {},
+    onReply: (() -> Unit)? = null,
     messageStatsEnabled: Boolean = false,
     showUserMessageTokens: Boolean = true,
     modifier: Modifier = Modifier,
@@ -118,11 +123,13 @@ fun UserBubble(
 
         // #1432: also protect cached/legacy rows and unexpectedly large plain-string payloads.
         // Keep the original content for Copy; only the layout input is bounded.
+        val quoteSplit = remember(message.content) { splitLeadingQuote(message.content) }
+        val bodyContent = quoteSplit?.second ?: message.content
         val displayContent =
-            remember(message.content, message.attachments) {
+            remember(bodyContent, message.attachments) {
                 // #1432: the path is only hidden when its image renders as an attachment below.
                 val visible =
-                    if (message.attachments.isNullOrEmpty()) message.content else hideImageRefLines(message.content)
+                    if (message.attachments.isNullOrEmpty()) bodyContent else hideImageRefLines(bodyContent)
                 ToolJson.clampForDisplay(visible)
             }
         val highlightedText =
@@ -204,20 +211,29 @@ fun UserBubble(
                                     Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                                 },
                         ) {
-                            SelectionContainer {
-                                Text(
-                                    text = highlightedText,
-                                    color = userBubbleTextColor,
-                                    style =
-                                        userTextStyle(toybox).copy(
-                                            textDirection =
-                                                if (isRtl) {
-                                                    TextDirection.Rtl
-                                                } else {
-                                                    TextDirection.Ltr
-                                                },
-                                        ),
+                            if (quoteSplit != null) {
+                                QuotedReply(
+                                    quote = quoteSplit.first,
+                                    toybox = toybox,
+                                    textColor = userBubbleTextColor,
                                 )
+                            }
+                            if (displayContent.isNotEmpty()) {
+                                SelectionContainer {
+                                    Text(
+                                        text = highlightedText,
+                                        color = userBubbleTextColor,
+                                        style =
+                                            userTextStyle(toybox).copy(
+                                                textDirection =
+                                                    if (isRtl) {
+                                                        TextDirection.Rtl
+                                                    } else {
+                                                        TextDirection.Ltr
+                                                    },
+                                            ),
+                                    )
+                                }
                             }
                             // Render inline attachments
                             InlineAttachmentList(
@@ -257,6 +273,19 @@ fun UserBubble(
                                             modifier = Modifier.size(12.dp),
                                             tint = userBubbleTextColor.copy(alpha = 0.7f),
                                         )
+                                    }
+                                    if (onReply != null) {
+                                        IconButton(
+                                            onClick = onReply,
+                                            modifier = Modifier.size(20.dp).testTag("user_reply"),
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.Reply,
+                                                contentDescription = stringResource(R.string.content_desc_reply),
+                                                modifier = Modifier.size(12.dp),
+                                                tint = userBubbleTextColor.copy(alpha = 0.7f),
+                                            )
+                                        }
                                     }
                                     Spacer(modifier = Modifier.width(2.dp))
                                     Text(
@@ -310,6 +339,37 @@ fun UserBubble(
                 }
             }
         }
+    }
+}
+
+/** Compact quoted block shown above the body of a reply. */
+@Composable
+private fun QuotedReply(
+    quote: String,
+    toybox: Boolean,
+    textColor: Color,
+) {
+    val barColor = if (toybox) BotsPalette.ToyOutline else textColor.copy(alpha = 0.5f)
+    val quoteColor = if (toybox) BotsPalette.ToyMutedText else textColor.copy(alpha = 0.75f)
+    val shape = RoundedCornerShape(8.dp)
+    Row(
+        modifier =
+            Modifier
+                .padding(bottom = 4.dp)
+                .clip(shape)
+                .then(if (toybox) Modifier.background(BotsPalette.ToyWhite) else Modifier)
+                .height(IntrinsicSize.Min)
+                .testTag("user_quote"),
+    ) {
+        Box(modifier = Modifier.width(3.dp).fillMaxHeight().background(barColor))
+        Text(
+            text = quote,
+            color = quoteColor,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        )
     }
 }
 

@@ -290,6 +290,12 @@
     <string name="content_desc_new_chat">New Chat</string>
     <string name="content_desc_scroll_to_bottom">Scroll to bottom</string>
     <string name="content_desc_copy">Copy</string>
+    <string name="content_desc_reply">Reply</string>
+    <string name="content_desc_like">Like</string>
+    <string name="content_desc_unlike">Remove like</string>
+    <string name="chat_replying_to_bot">Replying to Bot</string>
+    <string name="chat_replying_to_self">Replying to yourself</string>
+    <string name="content_desc_cancel_reply">Cancel reply</string>
     <string name="content_desc_copied">Copied</string>
     <string name="content_desc_speak">Read aloud</string>
     <string name="content_desc_stop_speaking">Stop speaking</string>

@@ -113,4 +113,6 @@ class TranscriptActions(
     val onRespondVaultCode: (String) -> Unit,
     val onDismissVaultCode: () -> Unit,
     val onToggleSpeak: (ChatMessage) -> Unit,
+    val onReply: ((ChatMessage) -> Unit)? = null,
+    val onToggleLike: ((ChatMessage) -> Unit)? = null,
 )

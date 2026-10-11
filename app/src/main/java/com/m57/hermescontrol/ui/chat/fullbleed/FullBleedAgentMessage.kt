@@ -15,10 +15,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.m57.hermescontrol.R
 import com.m57.hermescontrol.data.model.Attachment
+import com.m57.hermescontrol.data.model.MessageReaction
 import com.m57.hermescontrol.theme.BotsPalette
 import com.m57.hermescontrol.theme.LocalToybox
 import com.m57.hermescontrol.theme.toySticker
@@ -86,6 +90,9 @@ internal fun FullBleedAgentMessage(
     onImageClick: (ImageViewerModel) -> Unit = {},
     isSpeaking: Boolean = false,
     onToggleSpeak: (() -> Unit)? = null,
+    onReply: (() -> Unit)? = null,
+    isLiked: Boolean = false,
+    onToggleLike: (() -> Unit)? = null,
     messageStatsEnabled: Boolean = false,
     showAssistantMessageTokens: Boolean = true,
     showTokensPerSecond: Boolean = true,
@@ -215,7 +222,10 @@ internal fun FullBleedAgentMessage(
                 }
 
                 if (!message.isStreaming) {
-                    MessageReactionChips(message.reactions, Modifier.padding(top = 2.dp))
+                    MessageReactionChips(
+                        if (isLiked) message.reactions + MessageReaction("👍", "you") else message.reactions,
+                        Modifier.padding(top = 2.dp),
+                    )
                 }
 
                 if (!message.isStreaming && message.content.isNotBlank()) {
@@ -247,6 +257,19 @@ internal fun FullBleedAgentMessage(
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        if (onReply != null) {
+                            IconButton(
+                                onClick = onReply,
+                                modifier = Modifier.size(28.dp).testTag("fullbleed_reply"),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Reply,
+                                    contentDescription = stringResource(R.string.content_desc_reply),
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                         if (onToggleSpeak != null) {
                             IconButton(
                                 onClick = onToggleSpeak,
@@ -269,6 +292,27 @@ internal fun FullBleedAgentMessage(
                                         ),
                                     modifier = Modifier.size(14.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        if (onToggleLike != null) {
+                            IconButton(
+                                onClick = onToggleLike,
+                                modifier = Modifier.size(28.dp).testTag("fullbleed_like"),
+                            ) {
+                                Icon(
+                                    imageVector = if (isLiked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
+                                    contentDescription =
+                                        stringResource(
+                                            if (isLiked) R.string.content_desc_unlike else R.string.content_desc_like,
+                                        ),
+                                    modifier = Modifier.size(14.dp),
+                                    tint =
+                                        if (isLiked) {
+                                            if (toybox) BotsPalette.ToyAccent else MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
                                 )
                             }
                         }

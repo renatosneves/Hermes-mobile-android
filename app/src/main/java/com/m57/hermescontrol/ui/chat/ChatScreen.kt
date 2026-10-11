@@ -77,6 +77,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -99,7 +100,10 @@ import com.m57.hermescontrol.data.ws.ConnectionStatus
 import com.m57.hermescontrol.data.ws.HermesWsClient
 import com.m57.hermescontrol.notification.NotificationHelper
 import com.m57.hermescontrol.share.ShareInbox
+import com.m57.hermescontrol.theme.BotsPalette
 import com.m57.hermescontrol.theme.LocalHermesStatusColors
+import com.m57.hermescontrol.theme.LocalToybox
+import com.m57.hermescontrol.theme.toySticker
 import com.m57.hermescontrol.ui.chat.components.ChatAppUpdateSection
 import com.m57.hermescontrol.ui.chat.components.ChatConnectionBanner
 import com.m57.hermescontrol.ui.chat.components.ChatHistoryWindowBanner
@@ -262,6 +266,10 @@ fun ChatScreen(
     val speakingMessageId by speechController.speakingId.collectAsStateWithLifecycle()
     val dataScope by AuthManager.dataScopeFlow.collectAsStateWithLifecycle()
     val activeSessionId by ActiveSessionHolder.activeSessionId.collectAsStateWithLifecycle()
+    val likedStore = remember(context) { LikedMessagesStore.from(context) }
+    val likedKeys by likedStore.liked.collectAsStateWithLifecycle()
+    val likeSessionId = activeSessionId.orEmpty()
+    var replyTo by remember(activeSessionId) { mutableStateOf<ReplyTarget?>(null) }
     val listState = rememberLazyListState(prefetchStrategy = ChatTimelineNoPrefetchStrategy)
     val scrollScope = rememberCoroutineScope()
     val scrollController = rememberChatScrollController(listState, scrollScope)
@@ -876,6 +884,14 @@ fun ChatScreen(
                                 onDismissVaultSaveLogin = viewModel::dismissVaultSaveLogin,
                                 onRespondVaultCode = viewModel::respondToVaultCode,
                                 onDismissVaultCode = viewModel::dismissVaultCode,
+                                onReply = { message ->
+                                    replyTo =
+                                        ReplyTarget(
+                                            fromBot = message.role == MessageRole.ASSISTANT,
+                                            excerpt = replyExcerpt(message.content),
+                                        )
+                                },
+                                onToggleLike = { message -> likedStore.toggle(likeKey(likeSessionId, message)) },
                                 onToggleSpeak = { message ->
                                     val scopeKey = "${dataScope?.inMemoryKey(localKey = activeSessionId ?: "none")}"
                                     speechController.toggle(
@@ -890,6 +906,8 @@ fun ChatScreen(
                         searchState = searchState,
                         listState = listState,
                         scrollController = scrollController,
+                        likeSessionId = likeSessionId,
+                        likedKeys = likedKeys,
                         replyErrorContent =
                             state.replyFailure?.takeUnless { timelineState.isHistorical }?.let { failure ->
                                 {
@@ -988,13 +1006,18 @@ fun ChatScreen(
                 )
             }
 
+            replyTo?.let { target -> ReplyBar(target = target, onClose = { replyTo = null }) }
+
             ChatInputBar(
                 inputState = inputState,
                 receiveContentListener = imagePaste,
                 isReceivingContent = imagePaste.isReceiving,
                 onSend = {
-                    if (!imagePaste.isReceiving && viewModel.sendMessage(inputState.text.toString())) {
+                    if (!imagePaste.isReceiving &&
+                        viewModel.sendMessage(buildReplyText(replyTo, inputState.text.toString()))
+                    ) {
                         inputState.clearText()
+                        replyTo = null
                         // Jump only after an accepted send. A readiness race keeps the draft intact.
                         scrollController.jumpToBottom(animated = true)
                     }
@@ -1225,4 +1248,57 @@ internal fun ChatBackgroundConnectionMenuItem(
         onClick = { onToggle(!checked) },
         modifier = Modifier.testTag("chat_menu_keep_connected"),
     )
+}
+
+/** "Replying to" strip above the composer: who is quoted, a one-line excerpt and a close button. */
+@Composable
+private fun ReplyBar(
+    target: ReplyTarget,
+    onClose: () -> Unit,
+) {
+    val toybox = LocalToybox.current
+    val shape = RoundedCornerShape(if (toybox) 18.dp else 12.dp)
+    val textColor = if (toybox) BotsPalette.ToyText else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 4.dp)
+                .then(
+                    if (toybox) {
+                        Modifier.padding(end = 4.dp, bottom = 4.dp).toySticker(shape, BotsPalette.ToyWhite)
+                    } else {
+                        Modifier.clip(shape).background(MaterialTheme.colorScheme.surfaceVariant)
+                    },
+                ).padding(start = 12.dp, top = 4.dp, bottom = 4.dp, end = 4.dp)
+                .testTag("reply_bar"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text =
+                    stringResource(
+                        if (target.fromBot) R.string.chat_replying_to_bot else R.string.chat_replying_to_self,
+                    ),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = if (toybox) BotsPalette.ToyAccent else MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                text = target.excerpt,
+                style = MaterialTheme.typography.bodySmall,
+                color = textColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        IconButton(onClick = onClose, modifier = Modifier.size(32.dp).testTag("reply_bar_close")) {
+            Icon(
+                imageVector = Icons.Filled.Close,
+                contentDescription = stringResource(R.string.content_desc_cancel_reply),
+                modifier = Modifier.size(16.dp),
+                tint = textColor,
+            )
+        }
+    }
 }

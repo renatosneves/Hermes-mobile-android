@@ -48,6 +48,7 @@ import com.m57.hermescontrol.ui.chat.components.ReasoningCard
 import com.m57.hermescontrol.ui.chat.components.VaultCodeCard
 import com.m57.hermescontrol.ui.chat.components.VaultSaveLoginCard
 import com.m57.hermescontrol.ui.chat.components.VaultUnlockCard
+import com.m57.hermescontrol.ui.chat.likeKey
 import com.m57.hermescontrol.ui.chat.toolCallMilestones
 import com.m57.hermescontrol.ui.common.EmptyState
 
@@ -99,6 +100,8 @@ fun FullBleedChatList(
     listState: androidx.compose.foundation.lazy.LazyListState,
     scrollController: ChatScrollController,
     replyErrorContent: (@Composable () -> Unit)? = null,
+    likeSessionId: String = "",
+    likedKeys: Set<String> = emptySet(),
 ) {
     val messages = transcript.messages
     val streamingState = transcript.streamingState
@@ -336,6 +339,7 @@ fun FullBleedChatList(
                                             savingAttachmentPath = savingAttachmentPath,
                                             openingAttachmentPath = openingAttachmentPath,
                                             onImageClick = actions.onImageClick,
+                                            onReply = actions.onReply?.let { reply -> { reply(userMessage) } },
                                             messageStatsEnabled = messageStatsEnabled,
                                             showUserMessageTokens = showUserMessageTokens,
                                             pendingSendState = transcript.pendingSendStates[userMessage.id],
@@ -510,6 +514,16 @@ fun FullBleedChatList(
                                                                 onImageClick = actions.onImageClick,
                                                                 isSpeaking = isSpeakingThis,
                                                                 onToggleSpeak = toggleSpeakAction,
+                                                                onReply =
+                                                                    actions.onReply?.let { reply ->
+                                                                        { reply(proseMessage) }
+                                                                    },
+                                                                isLiked =
+                                                                    likeKey(likeSessionId, proseMessage) in likedKeys,
+                                                                onToggleLike =
+                                                                    actions.onToggleLike?.let { like ->
+                                                                        { like(proseMessage) }
+                                                                    },
                                                                 messageStatsEnabled = messageStatsEnabled,
                                                                 showAssistantMessageTokens = showAssistantMessageTokens,
                                                                 showTokensPerSecond = showTokensPerSecond,
@@ -606,6 +620,7 @@ private fun renderUserBubble(
     savingAttachmentPath: String?,
     openingAttachmentPath: String?,
     onImageClick: (ImageViewerModel) -> Unit,
+    onReply: (() -> Unit)?,
     messageStatsEnabled: Boolean,
     showUserMessageTokens: Boolean,
     pendingSendState: PendingSendState?,
@@ -620,6 +635,7 @@ private fun renderUserBubble(
         openingAttachmentPath = openingAttachmentPath,
         canSaveAttachment = savingAttachmentPath == null,
         onImageClick = onImageClick,
+        onReply = onReply,
         messageStatsEnabled = messageStatsEnabled,
         showUserMessageTokens = showUserMessageTokens,
         pendingSendState = pendingSendState,
