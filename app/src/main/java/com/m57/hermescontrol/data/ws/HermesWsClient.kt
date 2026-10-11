@@ -20,7 +20,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonElement
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
@@ -193,6 +195,23 @@ object HermesWsClient {
     @VisibleForTesting
     val isConnected: Boolean get() = transport.isConnected
 
+    /**
+     * True once the socket is up, waiting at most [timeoutMs] while it is still connecting.
+     * Callers with a REST fallback use it so a dropped socket sends them to REST at once instead
+     * of queuing an RPC that only times out.
+     */
+    suspend fun awaitConnected(timeoutMs: Long = CONNECT_GRACE_MS): Boolean {
+        if (isConnected) return true
+        return withTimeoutOrNull(timeoutMs) {
+            connectionStatus.first {
+                it == ConnectionStatus.CONNECTED ||
+                    it == ConnectionStatus.DISCONNECTED ||
+                    it == ConnectionStatus.NO_NETWORK ||
+                    it == ConnectionStatus.AUTH_EXPIRED
+            }
+        } == ConnectionStatus.CONNECTED
+    }
+
     fun setAppForeground(foreground: Boolean) = transport.setAppForeground(foreground)
 
     fun acquireExternalActivityConnectionLease() = transport.acquireExternalActivityConnectionLease()
@@ -234,6 +253,9 @@ object HermesWsClient {
     const val EVENT_BUFFER: Int = 2048
 
     const val REQUEST_TIMEOUT_MS: Long = 120_000L
+
+    /** How long [awaitConnected] waits for a socket that is still connecting. */
+    const val CONNECT_GRACE_MS: Long = 3_000L
 
     internal fun request(
         method: String,

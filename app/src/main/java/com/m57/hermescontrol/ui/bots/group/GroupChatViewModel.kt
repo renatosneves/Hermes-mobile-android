@@ -330,16 +330,18 @@ class GroupChatViewModel(
     }
 
     private suspend fun fetchProfiles(): List<ProfileInfo> {
-        try {
-            val jsonElement = HermesWsClient.call(RpcMethods.PROFILES_LIST, ProfilesListParams)
-            if (jsonElement !is JsonNull) {
-                val resp = json.decodeFromJsonElement<ProfilesResponse>(jsonElement)
-                if (!resp.profiles.isNullOrEmpty()) {
-                    return resp.profiles
+        if (HermesWsClient.awaitConnected()) {
+            try {
+                val jsonElement = HermesWsClient.call(RpcMethods.PROFILES_LIST, ProfilesListParams)
+                if (jsonElement !is JsonNull) {
+                    val resp = json.decodeFromJsonElement<ProfilesResponse>(jsonElement)
+                    if (!resp.profiles.isNullOrEmpty()) {
+                        return resp.profiles
+                    }
                 }
+            } catch (_: Exception) {
+                // Fallback to REST API below
             }
-        } catch (_: Exception) {
-            // Fallback to REST API below
         }
         val result = safeApiCall { ApiClient.hermesApi.getProfiles() }
         return (result as? NetworkResult.Success)?.data?.profiles.orEmpty()

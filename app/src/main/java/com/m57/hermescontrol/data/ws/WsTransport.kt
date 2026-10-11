@@ -108,7 +108,25 @@ internal class WsTransport(
             disconnectIfIdleInBackground()
             return
         }
-        connectionHealth.probeLivenessOnWake()
+        if (!reconnectNowIfWaiting()) connectionHealth.probeLivenessOnWake()
+    }
+
+    /**
+     * Back in the foreground with a reconnect still sitting out its backoff: skip the wait and
+     * retry now, so the app does not show "Reconnecting" for a server that is already back.
+     */
+    private fun reconnectNowIfWaiting(): Boolean {
+        synchronized(outboundLock) {
+            val waiting = reconnectJob ?: return false
+            if (!waiting.isActive || connected.get() || intentionalClose.get()) return false
+            if (!NetworkMonitor.isConnected.value || !AuthManager.isAutoReconnect()) return false
+            waiting.cancel()
+            reconnectJob = null
+            reconnectPolicy.reset()
+        }
+        Log.d(TAG, "Foreground — skipping reconnect backoff")
+        openSocket()
+        return true
     }
 
     fun acquireExternalActivityConnectionLease() {
@@ -676,7 +694,7 @@ internal class WsTransport(
                 Log.i(TAG, "WebSocket opened")
                 connected.set(true)
                 _connectionStatus.value = ConnectionStatus.CONNECTED
-                reconnectPolicy.reset()
+                reconnectPolicy.onOpened()
                 connectionHealth.start()
 
                 while (true) {

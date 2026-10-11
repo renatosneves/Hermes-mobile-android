@@ -1,81 +1,102 @@
 package com.m57.hermescontrol.data.ws
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReconnectPolicyTest {
+    /** Spends the immediate first retry so the tests below exercise the backoff itself. */
+    private fun ReconnectPolicy.skipFirstRetry(): ReconnectPolicy =
+        apply {
+            nextDelayMs()
+            advance()
+        }
+
     @Test
-    fun defaultInitialBackoffIs1000() {
+    fun defaultInitialBackoffIs500() {
         val policy = ReconnectPolicy()
-        assertEquals(1000L, policy.currentBackoff)
+        assertEquals(500L, policy.currentBackoff)
     }
 
     @Test
-    fun nextDelayMsUsesInjectedRandomAndFloorsAt300() {
-        // With random = 0.0, calculated delay is 0, floored to 300 (or ceiling if ceiling < 300)
-        val minPolicy = ReconnectPolicy(random = { 0.0 })
-        assertEquals(300L, minPolicy.nextDelayMs())
+    fun firstRetryAfterResetIsNearlyImmediate() {
+        val policy = ReconnectPolicy(random = { 0.999 })
+        assertTrue(policy.nextDelayMs() < ReconnectPolicy.FIRST_RETRY_JITTER_MS)
+        policy.advance()
+        // The immediate retry is not a backoff step.
+        assertEquals(500L, policy.currentBackoff)
 
-        // With random = 0.5 and ceiling = 1000, 0.5 * 1000 = 500
-        val midPolicy = ReconnectPolicy(random = { 0.5 })
-        assertEquals(500L, midPolicy.nextDelayMs())
+        policy.reset()
+        assertTrue(policy.nextDelayMs() < ReconnectPolicy.FIRST_RETRY_JITTER_MS)
+    }
 
-        // With random nearly 1.0 (0.999), 0.999 * 1000 = 999
-        val maxPolicy = ReconnectPolicy(random = { 0.999 })
-        assertEquals(999L, maxPolicy.nextDelayMs())
+    @Test
+    fun onlyAStableConnectionEarnsAnotherImmediateRetry() {
+        var now = 0L
+        val policy = ReconnectPolicy(random = { 0.999 }, nowMs = { now }).skipFirstRetry()
+
+        // Opened and dropped at once: keep backing off.
+        policy.onOpened()
+        now += 100L
+        assertEquals(499L, policy.nextDelayMs())
+        policy.advance()
+
+        // Stayed up long enough: the next drop retries at once again.
+        policy.onOpened()
+        now += ReconnectPolicy.STABLE_CONNECTION_MS
+        assertTrue(policy.nextDelayMs() < ReconnectPolicy.FIRST_RETRY_JITTER_MS)
+        policy.advance()
+        assertEquals(500L, policy.currentBackoff)
+    }
+
+    @Test
+    fun nextDelayMsUsesInjectedRandomAndFloorsAt250() {
+        val minPolicy = ReconnectPolicy(random = { 0.0 }).skipFirstRetry()
+        assertEquals(250L, minPolicy.nextDelayMs())
+
+        val midPolicy = ReconnectPolicy(random = { 0.6 }).skipFirstRetry()
+        assertEquals(300L, midPolicy.nextDelayMs())
+
+        val maxPolicy = ReconnectPolicy(random = { 0.999 }).skipFirstRetry()
+        assertEquals(499L, maxPolicy.nextDelayMs())
     }
 
     @Test
     fun nextDelayMsRespectsCeilingCapsBelowFloorAndZero() {
-        // Ceiling <= 0 results in 0
-        val zeroPolicy = ReconnectPolicy(random = { 0.5 })
+        val zeroPolicy = ReconnectPolicy(random = { 0.5 }).skipFirstRetry()
         zeroPolicy.currentBackoff = 0L
         assertEquals(0L, zeroPolicy.nextDelayMs())
 
-        val negativePolicy = ReconnectPolicy(random = { 0.5 })
+        val negativePolicy = ReconnectPolicy(random = { 0.5 }).skipFirstRetry()
         negativePolicy.currentBackoff = -100L
         assertEquals(0L, negativePolicy.nextDelayMs())
 
-        // When ceiling is 100 (which is < 300 floor), delay should be capped to ceiling (100)
-        val lowCeilingPolicy = ReconnectPolicy(random = { 0.0 })
+        val lowCeilingPolicy = ReconnectPolicy(random = { 0.0 }).skipFirstRetry()
         lowCeilingPolicy.currentBackoff = 100L
         assertEquals(100L, lowCeilingPolicy.nextDelayMs())
     }
 
     @Test
-    fun advanceDoublesBackoffUpToCapOf30000() {
-        val policy = ReconnectPolicy()
-        assertEquals(1000L, policy.currentBackoff)
+    fun advanceDoublesBackoffUpToCapOf15000() {
+        val policy = ReconnectPolicy().skipFirstRetry()
+        assertEquals(500L, policy.currentBackoff)
 
-        policy.advance()
-        assertEquals(2000L, policy.currentBackoff)
-
-        policy.advance()
-        assertEquals(4000L, policy.currentBackoff)
-
-        policy.advance()
-        assertEquals(8000L, policy.currentBackoff)
-
-        policy.advance()
-        assertEquals(16000L, policy.currentBackoff)
-
-        // Doubles past 30000 should cap exactly at 30000 (not speculative 15000 or 32000)
-        policy.advance()
-        assertEquals(30000L, policy.currentBackoff)
-
-        policy.advance()
-        assertEquals(30000L, policy.currentBackoff)
+        val expected = listOf(1000L, 2000L, 4000L, 8000L, 15000L, 15000L)
+        for (value in expected) {
+            policy.advance()
+            assertEquals(value, policy.currentBackoff)
+        }
     }
 
     @Test
-    fun resetRestoresInitialBackoffOf1000() {
-        val policy = ReconnectPolicy()
+    fun resetRestoresInitialBackoffOf500() {
+        val policy = ReconnectPolicy().skipFirstRetry()
         policy.advance()
         policy.advance()
-        assertEquals(4000L, policy.currentBackoff)
+        assertEquals(2000L, policy.currentBackoff)
 
         policy.reset()
-        assertEquals(1000L, policy.currentBackoff)
+        assertEquals(500L, policy.currentBackoff)
     }
 
     @Test
@@ -84,14 +105,11 @@ class ReconnectPolicyTest {
         policy.setBackoffForTest(1500L)
 
         assertEquals(1500L, policy.currentBackoff)
-        // With test override, delay should be deterministic override value
         assertEquals(1500L, policy.nextDelayMs())
 
-        // advance() still uses deterministic override if set, or advances from set initial/current
         policy.advance()
         assertEquals(1500L, policy.nextDelayMs())
 
-        // reset() retains deterministic override behavior or resets to overridden initial
         policy.reset()
         assertEquals(1500L, policy.nextDelayMs())
     }

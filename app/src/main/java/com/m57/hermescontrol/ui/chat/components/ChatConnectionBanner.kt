@@ -17,6 +17,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -25,6 +30,10 @@ import androidx.compose.ui.unit.dp
 import com.m57.hermescontrol.R
 import com.m57.hermescontrol.data.ws.ConnectionStatus
 import com.m57.hermescontrol.theme.LocalHermesStatusColors
+import kotlinx.coroutines.delay
+
+/** A reconnect that finishes within this window never shows the banner. */
+private const val RECONNECT_BANNER_GRACE_MS = 1_500L
 
 /**
  * Top-anchored banner shown when the WebSocket connection is in a non-healthy
@@ -38,9 +47,20 @@ fun ChatConnectionBanner(
     onReconnect: () -> Unit,
     onReloginClick: () -> Unit,
 ) {
+    var reconnectOverdue by remember { mutableStateOf(false) }
+    LaunchedEffect(connectionStatus) {
+        reconnectOverdue = false
+        if (connectionStatus == ConnectionStatus.RECONNECTING) {
+            delay(RECONNECT_BANNER_GRACE_MS)
+            reconnectOverdue = true
+        }
+    }
     val isShown =
-        connectionStatus != ConnectionStatus.CONNECTED &&
-            connectionStatus != ConnectionStatus.CONNECTING
+        when (connectionStatus) {
+            ConnectionStatus.CONNECTED, ConnectionStatus.CONNECTING -> false
+            ConnectionStatus.RECONNECTING -> reconnectOverdue
+            else -> true
+        }
     AnimatedVisibility(
         visible = isShown,
         enter = expandVertically() + fadeIn(),

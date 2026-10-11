@@ -354,17 +354,24 @@ class BotsViewModel(
 
             // First try fetching profiles via WebSocket RPC (profiles.list) which includes ui_meta (groups, custom avatars).
             var profilesWithMeta: List<ProfileInfo>? = null
-            try {
-                val jsonElement =
-                    HermesWsClient.call(RpcMethods.PROFILES_LIST, ProfilesListParams, timeoutMs = METADATA_TIMEOUT_MS)
-                if (jsonElement !is JsonNull) {
-                    val resp = OkHttpProvider.json.decodeFromJsonElement<ProfilesResponse>(jsonElement)
-                    if (!resp.profiles.isNullOrEmpty()) {
-                        profilesWithMeta = resp.profiles
+            // A dropped socket would only queue the call until it times out: go straight to REST.
+            if (HermesWsClient.awaitConnected()) {
+                try {
+                    val jsonElement =
+                        HermesWsClient.call(
+                            RpcMethods.PROFILES_LIST,
+                            ProfilesListParams,
+                            timeoutMs = METADATA_TIMEOUT_MS,
+                        )
+                    if (jsonElement !is JsonNull) {
+                        val resp = OkHttpProvider.json.decodeFromJsonElement<ProfilesResponse>(jsonElement)
+                        if (!resp.profiles.isNullOrEmpty()) {
+                            profilesWithMeta = resp.profiles
+                        }
                     }
+                } catch (_: Exception) {
+                    // Fallback to REST API below
                 }
-            } catch (_: Exception) {
-                // Fallback to REST API below
             }
 
             val profilesResult =
