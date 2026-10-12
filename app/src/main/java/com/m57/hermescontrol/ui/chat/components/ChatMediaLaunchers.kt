@@ -19,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -64,7 +65,9 @@ fun rememberChatMediaLaunchers(
     context: Context = LocalContext.current,
 ): ChatMediaLaunchers {
     var isListening by remember { mutableStateOf(false) }
-    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
+    // Saveable: the camera app often recreates this screen (fold/unfold, low memory), and a lost
+    // uri used to drop the photo silently.
+    var pendingCameraUri by rememberSaveable { mutableStateOf<Uri?>(null) }
 
     val currentInputState by rememberUpdatedState(inputState)
     val currentOnAddAttachment by rememberUpdatedState(onAddAttachment)
@@ -219,8 +222,9 @@ fun rememberChatMediaLaunchers(
             ActivityResultContracts.TakePicture(),
         ) { success ->
             ExternalActivityLifecycleGuard.externalActivityReturned()
-            val uri = pendingCameraUri
+            val uri = pendingCameraUri ?: if (success) latestCameraPhoto(context) else null
             pendingCameraUri = null
+            if (success && uri == null) currentOnShowMessage(cameraErrorMsg)
             if (success && uri != null) {
                 try {
                     val fileName =
@@ -397,3 +401,19 @@ fun rememberChatMediaLaunchers(
 
 /** Telegram samples their amplitude pipeline roughly this fast. */
 private const val AMPLITUDE_POLL_MS = 60L
+
+/** Freshest photo the camera wrote for us in the last few minutes, when the pending uri was lost. */
+private fun latestCameraPhoto(context: Context): Uri? {
+    val cutoff = System.currentTimeMillis() - CAMERA_PHOTO_MAX_AGE_MS
+    val file =
+        context.cacheDir
+            .listFiles { f -> f.name.startsWith("camera_") && f.name.endsWith(".jpg") }
+            ?.filter { it.length() > 0L && it.lastModified() >= cutoff }
+            ?.maxByOrNull { it.lastModified() }
+            ?: return null
+    return runCatching {
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    }.getOrNull()
+}
+
+private const val CAMERA_PHOTO_MAX_AGE_MS = 10 * 60 * 1000L
