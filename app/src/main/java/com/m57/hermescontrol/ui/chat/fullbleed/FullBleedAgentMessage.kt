@@ -263,7 +263,7 @@ internal fun FullBleedAgentMessage(
                     ) {
                         if (onReply != null) {
                             ActionPill(onClick = onReply, tag = "fullbleed_reply", yellow = true) {
-                                PillLabel(stringResource(R.string.chat_action_reply))
+                                PillLabel(stringResource(R.string.chat_action_reply), onYellow = true)
                             }
                         }
                         ActionPill(
@@ -278,7 +278,7 @@ internal fun FullBleedAgentMessage(
                             Icon(
                                 imageVector = if (copied) Icons.Filled.Check else Icons.Filled.ContentCopy,
                                 contentDescription = null,
-                                modifier = Modifier.size(20.dp),
+                                modifier = Modifier.size(PILL_ICON),
                                 tint = pillContent(),
                             )
                             PillLabel(stringResource(R.string.chat_action_copy))
@@ -289,14 +289,14 @@ internal fun FullBleedAgentMessage(
                                     if (reaction != null) {
                                         Text(
                                             text = reaction,
-                                            fontSize = 20.sp,
+                                            fontSize = 16.sp,
                                             modifier = Modifier.semantics { contentDescription = reactionDescription },
                                         )
                                     } else {
                                         Icon(
                                             imageVector = Icons.Outlined.AddReaction,
                                             contentDescription = null,
-                                            modifier = Modifier.size(20.dp),
+                                            modifier = Modifier.size(PILL_ICON),
                                             tint = pillContent(),
                                         )
                                         PillLabel(stringResource(R.string.chat_action_react))
@@ -323,7 +323,7 @@ internal fun FullBleedAgentMessage(
                         if (onToggleSpeak != null) {
                             IconButton(
                                 onClick = onToggleSpeak,
-                                modifier = Modifier.size(48.dp).testTag("fullbleed_speak"),
+                                modifier = Modifier.size(PILL_HEIGHT).testTag("fullbleed_speak"),
                             ) {
                                 Icon(
                                     imageVector =
@@ -340,7 +340,7 @@ internal fun FullBleedAgentMessage(
                                                 R.string.content_desc_speak
                                             },
                                         ),
-                                    modifier = Modifier.size(20.dp),
+                                    modifier = Modifier.size(18.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
@@ -450,6 +450,10 @@ private fun ReactionMenu(
     }
 }
 
+/** Height of the action pills under a bot message: compact, still an easy thumb target. */
+private val PILL_HEIGHT = 36.dp
+private val PILL_ICON = 16.dp
+
 /** Labelled action pill under a bot message; a yellow sticker in Toybox, a tonal surface otherwise. */
 @Composable
 private fun ActionPill(
@@ -477,8 +481,8 @@ private fun ActionPill(
                 .then(surface)
                 .clip(shape)
                 .clickable(onClick = onClick)
-                .heightIn(min = 48.dp)
-                .padding(horizontal = 16.dp)
+                .heightIn(min = PILL_HEIGHT)
+                .padding(horizontal = 12.dp)
                 .testTag(tag),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -487,11 +491,18 @@ private fun ActionPill(
 }
 
 @Composable
-private fun pillContent(): Color =
-    if (LocalToybox.current) BotsPalette.ToyText else MaterialTheme.colorScheme.onSurfaceVariant
+private fun pillContent(onYellow: Boolean = false): Color =
+    when {
+        LocalToybox.current && onYellow -> BotsPalette.ToyOnYellow
+        LocalToybox.current -> BotsPalette.ToyText
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
 
 @Composable
-private fun PillLabel(text: String) {
+private fun PillLabel(
+    text: String,
+    onYellow: Boolean = false,
+) {
     val toybox = LocalToybox.current
     Text(
         text = text,
@@ -501,7 +512,7 @@ private fun PillLabel(text: String) {
             } else {
                 MaterialTheme.typography.labelMedium
             },
-        color = pillContent(),
+        color = pillContent(onYellow),
         maxLines = 1,
     )
 }

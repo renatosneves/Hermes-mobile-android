@@ -252,6 +252,9 @@ object BotsPalette {
     /** Toybox yellow (busy tag, "Today" chip, attach button, busy filter pill). */
     val ToyYellow = Color(0xFFFFD84D)
 
+    /** Text and icons on [ToyYellow]: always dark, so it reads by day and by night. */
+    val ToyOnYellow = Color(0xFF241A3D)
+
     /** Toybox unread counter. */
     val ToyPink = Color(0xFFFF4F8B)
 

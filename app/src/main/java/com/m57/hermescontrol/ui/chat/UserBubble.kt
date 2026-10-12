@@ -265,24 +265,24 @@ fun UserBubble(
                                             }
                                             copied = true
                                         },
-                                        modifier = Modifier.size(40.dp),
+                                        modifier = Modifier.size(32.dp),
                                     ) {
                                         Icon(
                                             imageVector = if (copied) Icons.Filled.Check else Icons.Filled.ContentCopy,
                                             contentDescription = stringResource(R.string.content_desc_copy),
-                                            modifier = Modifier.size(20.dp),
+                                            modifier = Modifier.size(16.dp),
                                             tint = userBubbleTextColor.copy(alpha = 0.7f),
                                         )
                                     }
                                     if (onReply != null) {
                                         IconButton(
                                             onClick = onReply,
-                                            modifier = Modifier.size(40.dp).testTag("user_reply"),
+                                            modifier = Modifier.size(32.dp).testTag("user_reply"),
                                         ) {
                                             Icon(
                                                 imageVector = Icons.AutoMirrored.Filled.Reply,
                                                 contentDescription = stringResource(R.string.content_desc_reply),
-                                                modifier = Modifier.size(20.dp),
+                                                modifier = Modifier.size(16.dp),
                                                 tint = userBubbleTextColor.copy(alpha = 0.7f),
                                             )
                                         }
