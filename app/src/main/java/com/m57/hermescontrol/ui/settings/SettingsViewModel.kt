@@ -49,6 +49,7 @@ data class SettingsUiState(
     val showModelProvider: Boolean = false,
     val keepConnectedInBackground: Boolean = false,
     val notifySessionCompletions: Boolean = false,
+    val notifyNewBotMessages: Boolean = true,
     val profiles: List<ConnectionProfile> = emptyList(),
     val selectedProfileId: String? = null,
     val renameProfileName: String = "",
@@ -99,6 +100,7 @@ class SettingsViewModel(
         val showModelProvider = AuthManager.isModelProviderShown()
         val keepConnectedInBackground = AuthManager.isKeepConnectedInBackground()
         val notifySessionCompletions = AuthManager.isNotifySessionCompletions()
+        val notifyNewBotMessages = AuthManager.isNotifyNewBotMessages()
         val profiles = AuthManager.getConnectionProfiles()
         val appLanguage = AuthManager.getAppLanguage()
         val renameProfileName =
@@ -128,6 +130,7 @@ class SettingsViewModel(
                 showModelProvider = showModelProvider,
                 keepConnectedInBackground = keepConnectedInBackground,
                 notifySessionCompletions = notifySessionCompletions,
+                notifyNewBotMessages = notifyNewBotMessages,
                 profiles = profiles,
                 selectedProfileId = selectedId,
                 renameProfileName = renameProfileName,
@@ -417,6 +420,11 @@ class SettingsViewModel(
     fun onNotifySessionCompletionsChange(enabled: Boolean) {
         _uiState.update { it.copy(notifySessionCompletions = enabled) }
         AuthManager.setNotifySessionCompletions(enabled)
+    }
+
+    fun onNotifyNewBotMessagesChange(enabled: Boolean) {
+        _uiState.update { it.copy(notifyNewBotMessages = enabled) }
+        AuthManager.setNotifyNewBotMessages(enabled)
     }
 
     /** Reconcile the chat shortcut with changes made through Settings or another screen. */

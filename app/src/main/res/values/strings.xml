@@ -207,6 +207,8 @@
     <string name="notif_connecting">Connecting…</string>
     <string name="notif_waiting_network">Waiting for network</string>
     <string name="notif_reconnecting">Reconnecting</string>
+    <string name="settings_notify_new_bot_messages_title">Notify me about new bot messages when the app is closed</string>
+    <string name="settings_notify_new_bot_messages_desc">Checks for new bot messages roughly every 15 minutes or later, depending on your battery settings.</string>
     <string name="notif_new_message">New message</string>
     <string name="notif_clarification_needed">Hermes needs a clarification</string>
     <string name="notif_input_needed">Hermes needs your input</string>

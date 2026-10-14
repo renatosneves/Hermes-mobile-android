@@ -255,6 +255,8 @@ internal fun SettingsBehaviorPage(
                 onKeepConnectedInBackgroundChange = viewModel::onKeepConnectedInBackgroundChange,
                 notifySessionCompletions = state.notifySessionCompletions,
                 onNotifySessionCompletionsChange = viewModel::onNotifySessionCompletionsChange,
+                notifyNewBotMessages = state.notifyNewBotMessages,
+                onNotifyNewBotMessagesChange = viewModel::onNotifyNewBotMessagesChange,
                 restoreLastSession = state.restoreLastSession,
                 onRestoreLastSessionChange = viewModel::onRestoreLastSessionChange,
             )

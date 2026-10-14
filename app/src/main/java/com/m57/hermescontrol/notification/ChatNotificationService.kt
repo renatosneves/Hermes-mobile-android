@@ -743,6 +743,7 @@ object NotificationHelper {
         foreground: Boolean,
     ) {
         ChatNotificationService.setAppForeground(foreground)
+        if (!foreground) NewMessageCheckJob.recordAppBackgrounded(context)
         HermesWsClient.setAppForeground(foreground)
         if (!foreground) {
             BackgroundConnectionController.default.reconcileState()

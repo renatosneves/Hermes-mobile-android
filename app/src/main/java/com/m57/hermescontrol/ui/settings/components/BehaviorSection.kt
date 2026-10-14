@@ -23,6 +23,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.m57.hermescontrol.R
+import com.m57.hermescontrol.notification.NewMessageCheckJob
 import com.m57.hermescontrol.ui.settings.SectionCard
 
 @Composable
@@ -33,6 +34,8 @@ internal fun BehaviorSection(
     onKeepConnectedInBackgroundChange: (Boolean) -> Unit,
     notifySessionCompletions: Boolean,
     onNotifySessionCompletionsChange: (Boolean) -> Unit,
+    notifyNewBotMessages: Boolean,
+    onNotifyNewBotMessagesChange: (Boolean) -> Unit,
     restoreLastSession: Boolean,
     onRestoreLastSessionChange: (Boolean) -> Unit,
 ) {
@@ -137,6 +140,37 @@ internal fun BehaviorSection(
                             permissionLauncher.launch(permission)
                         }
                     }
+                },
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.settings_notify_new_bot_messages_title),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Text(
+                    text = stringResource(R.string.settings_notify_new_bot_messages_desc),
+                    style =
+                        MaterialTheme.typography.bodySmall.copy(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
+                )
+            }
+            Switch(
+                checked = notifyNewBotMessages,
+                onCheckedChange = { enabled ->
+                    onNotifyNewBotMessagesChange(enabled)
+                    NewMessageCheckJob.sync(context)
                 },
             )
         }

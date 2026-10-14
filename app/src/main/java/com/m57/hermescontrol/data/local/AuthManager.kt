@@ -897,6 +897,12 @@ object AuthManager {
         serverStore.update { it.copy(notifySessionCompletions = enabled) }
     }
 
+    fun isNotifyNewBotMessages(): Boolean = serverStore.getLatestState().notifyNewBotMessages
+
+    fun setNotifyNewBotMessages(enabled: Boolean) {
+        serverStore.update { it.copy(notifyNewBotMessages = enabled) }
+    }
+
     // ── Chat Font Scale (issue #1004) ───────────────────────────────────
 
     fun getChatFontScale(): Float = serverStore.getLatestState().chatFontScale

@@ -17,6 +17,7 @@ import com.m57.hermescontrol.data.remote.NetworkMonitor
 import com.m57.hermescontrol.data.remote.OkHttpProvider
 import com.m57.hermescontrol.diagnostics.ChatTrace
 import com.m57.hermescontrol.diagnostics.FreezeReporter
+import com.m57.hermescontrol.notification.NewMessageCheckJob
 import com.m57.hermescontrol.notification.TurnCorrelationTracker
 import com.m57.hermescontrol.ui.analytics.AnalyticsPreloader
 import com.m57.hermescontrol.ui.chat.cleanStalePastedImages
@@ -46,6 +47,10 @@ class HermesControlApp :
         // Reply-notification turn boundaries survive process death (armed before
         // each mobile prompt, consumed by the matching completion).
         TurnCorrelationTracker.attach(this)
+        appScope.launch {
+            AuthManager.initializationState.first { it == AuthManager.InitializationState.Ready }
+            NewMessageCheckJob.sync(this@HermesControlApp)
+        }
         appScope.launch {
             AuthManager.initializationState.first { it == AuthManager.InitializationState.Ready }
             // Issue #537 follow-up (A): preload analytics in the background after launch
