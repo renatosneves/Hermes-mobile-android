@@ -108,6 +108,8 @@ private const val MESSAGE_PAGE_SIZE = 150
 private const val TIMELINE_PAGE_SIZE = 500
 private const val HISTORY_WINDOW_SIZE = 120
 private const val MAX_PENDING_RECEIPT_LOOKUPS = 8
+private const val CRON_REFRESH_POLL_MS = 1_000L
+private const val CRON_REFRESH_MAX_WAIT_MS = 10 * 60_000L
 private const val VOICE_NOTE_OFFLINE_MESSAGE = "Voice note not sent — not connected"
 private const val VOICE_NOTE_EMPTY_MESSAGE = "No speech detected in the voice note"
 private const val VOICE_NOTE_FAILED_MESSAGE = "Voice note transcription failed"
@@ -651,6 +653,7 @@ class ChatViewModel(
     private var hydrationJob: Job? = null
     private var olderJob: Job? = null
     private var syncJob: Job? = null
+    private var cronRefreshJob: Job? = null
     private var receiptLookupJob: Job? = null
     private var receiptLookupCursor = 0L
     private val historyFetchMutex = Mutex()
@@ -1121,6 +1124,13 @@ class ChatViewModel(
     }
 
     private fun handleWsEvent(event: WsEvent) {
+        if (event is WsEvent.MessageComplete && CronFollowUps.isCron(event)) {
+            // A cron follow-up is not the end of a live turn: reload history instead of reducing it.
+            if (CronFollowUps.concernsOpenChat(event, ::isCurrentSession, AuthManager.activeProfileId.value)) {
+                requestCronRefresh()
+            }
+            return
+        }
         // Filter explicitly scoped terminal/start events before buffer resets and reduction.
         // Legacy unscoped failures are ambiguous across sessions, so fail closed: gateways
         // must include session_id for failed replies to be surfaced by this client.
@@ -1368,6 +1378,11 @@ class ChatViewModel(
             is WsEvent.BackgroundComplete -> {
                 // Reducer already set backgroundCompleteMessage; the UI observes
                 // it via a LaunchedEffect and triggers the snackbar.
+                if (CronFollowUps.isCron(event) &&
+                    CronFollowUps.concernsOpenChat(event, ::isCurrentSession, AuthManager.activeProfileId.value)
+                ) {
+                    requestCronRefresh()
+                }
             }
 
             is WsEvent.ReactionEvent -> {
@@ -6367,6 +6382,32 @@ class ChatViewModel(
                 } finally {
                     if (valid()) _uiState.update { it.copy(isLoadingOlder = false) }
                 }
+            }
+    }
+
+    /**
+     * Reloads the open chat for a cron follow-up once any live turn has settled, so the refresh
+     * never overwrites a streaming reply or the composer. Repeated events share one pending reload.
+     */
+    private fun requestCronRefresh() {
+        if (cronRefreshJob?.isActive == true) return
+        val sessionId = _uiState.value.currentSessionId ?: return
+        cronRefreshJob =
+            viewModelScope.launch {
+                val deadline = System.currentTimeMillis() + CRON_REFRESH_MAX_WAIT_MS
+                while (System.currentTimeMillis() < deadline) {
+                    if (_uiState.value.currentSessionId != sessionId) return@launch
+                    val busy =
+                        mainTurnBusy ||
+                            isSyncingMessages ||
+                            hydrationJob?.isActive == true ||
+                            _uiState.value.isAgentTyping ||
+                            _streamingState.value.streamingMessage != null
+                    if (!busy) break
+                    delay(CRON_REFRESH_POLL_MS)
+                }
+                ChatTrace.note("cron follow-up: reloading history")
+                syncCurrentSession()
             }
     }
 

@@ -1034,11 +1034,13 @@ object ChatWsEventReducer {
         streamingState: StreamingState,
         event: WsEvent.BackgroundComplete,
     ): ReducerResult {
+        val cronProfile = CronFollowUps.profileOf(event)?.takeIf { CronFollowUps.isCron(event) }
         val message =
-            when (val label = event.data?.get("label")) {
-                is String -> label
-                else -> event.data?.get("name") as? String
-            }?.let { "Background job finished: $it" }
+            cronProfile?.let { "New follow-up from ${it.replaceFirstChar(Char::titlecase)}" }
+                ?: when (val label = event.data?.get("label")) {
+                    is String -> label
+                    else -> event.data?.get("name") as? String
+                }?.let { "Background job finished: $it" }
                 ?: "Background job finished"
         return ReducerResult(
             state = state.copy(backgroundCompleteMessage = message),
