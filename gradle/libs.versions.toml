@@ -33,8 +33,11 @@ datastore = "1.1.2"
 latex = "1.5.6"
 # Prebuilt libwebrtc for GPT-Live voice (WebRTC to OpenAI's live voice model).
 streamWebrtc = "1.3.10"
+# UnifiedPush connector: battery-friendly push through a distributor app (ntfy).
+unifiedpush = "3.3.5"
 
 [libraries]
+unifiedpush-connector = { module = "org.unifiedpush.android:connector", version.ref = "unifiedpush" }
 stream-webrtc-android = { module = "io.getstream:stream-webrtc-android", version.ref = "streamWebrtc" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
 androidx-browser = { module = "androidx.browser:browser", version.ref = "androidxBrowser" }

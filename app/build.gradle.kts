@@ -216,6 +216,14 @@ dependencies {
     implementation(libs.media3.ui)
     implementation(libs.media3.datasource.okhttp)
 
+    // Push notifications (UnifiedPush / Web Push)
+    // The connector bundles its own Web Push code and only uses Tink's `subtle` helpers, which
+    // tink-android (pulled in by androidx.security:security-crypto) also ships. Excluding the
+    // JVM `tink` artifact avoids duplicate classes.
+    implementation(libs.unifiedpush.connector) {
+        exclude(group = "com.google.crypto.tink", module = "tink")
+    }
+
     // GPT-Live voice chat (WebRTC)
     implementation(libs.stream.webrtc.android)
 

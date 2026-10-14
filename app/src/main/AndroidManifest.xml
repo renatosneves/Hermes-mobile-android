@@ -92,6 +92,19 @@
             android:exported="false" />
 
         <receiver
+            android:name=".notification.push.PushActionReceiver"
+            android:exported="false" />
+
+        <!-- UnifiedPush: the distributor app (ntfy) binds this to deliver endpoints and messages. -->
+        <service
+            android:name=".notification.push.HermesPushService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
+            </intent-filter>
+        </service>
+
+        <receiver
             android:name=".notification.StopKeepConnectedReceiver"
             android:exported="false" />
 

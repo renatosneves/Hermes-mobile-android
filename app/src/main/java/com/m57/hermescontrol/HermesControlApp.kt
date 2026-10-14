@@ -15,10 +15,13 @@ import com.m57.hermescontrol.data.remote.CertificateImageInterceptor
 import com.m57.hermescontrol.data.remote.ClientCertificates
 import com.m57.hermescontrol.data.remote.NetworkMonitor
 import com.m57.hermescontrol.data.remote.OkHttpProvider
+import com.m57.hermescontrol.data.session.ActiveSessionHolder
 import com.m57.hermescontrol.diagnostics.ChatTrace
 import com.m57.hermescontrol.diagnostics.FreezeReporter
 import com.m57.hermescontrol.notification.NewMessageCheckJob
 import com.m57.hermescontrol.notification.TurnCorrelationTracker
+import com.m57.hermescontrol.notification.push.PushNotifier
+import com.m57.hermescontrol.notification.push.PushRegistrar
 import com.m57.hermescontrol.ui.analytics.AnalyticsPreloader
 import com.m57.hermescontrol.ui.chat.cleanStalePastedImages
 import kotlinx.coroutines.CoroutineScope
@@ -50,6 +53,13 @@ class HermesControlApp :
         appScope.launch {
             AuthManager.initializationState.first { it == AuthManager.InitializationState.Ready }
             NewMessageCheckJob.sync(this@HermesControlApp)
+        }
+        // Push: channels exist before the first push; registration is retried on every start.
+        PushNotifier.ensureChannels(this)
+        PushRegistrar.startup(this)
+        appScope.launch {
+            // Opening a bot's chat clears that bot's push notifications.
+            ActiveSessionHolder.activeSessionId.collect { PushNotifier.cancelForOpenChat(this@HermesControlApp) }
         }
         appScope.launch {
             AuthManager.initializationState.first { it == AuthManager.InitializationState.Ready }

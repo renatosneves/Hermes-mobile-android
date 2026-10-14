@@ -100,6 +100,9 @@ import com.m57.hermescontrol.data.model.ProfileSetupCommandResponse
 import com.m57.hermescontrol.data.model.ProfileSoulResponse
 import com.m57.hermescontrol.data.model.ProfilesResponse
 import com.m57.hermescontrol.data.model.PruneRequest
+import com.m57.hermescontrol.data.model.PushDeviceRequest
+import com.m57.hermescontrol.data.model.PushOkResponse
+import com.m57.hermescontrol.data.model.PushRegisterRequest
 import com.m57.hermescontrol.data.model.RawConfigResponse
 import com.m57.hermescontrol.data.model.RecentUnlock
 import com.m57.hermescontrol.data.model.RenameProfileRequest
@@ -445,6 +448,21 @@ interface HermesApiService : KanbanApiService {
 
     @GET("api/profiles")
     suspend fun getProfiles(): Response<ProfilesResponse>
+
+    @POST("api/plugins/hermes-push/register")
+    suspend fun pushRegister(
+        @Body body: PushRegisterRequest,
+    ): Response<PushOkResponse>
+
+    @POST("api/plugins/hermes-push/unregister")
+    suspend fun pushUnregister(
+        @Body body: PushDeviceRequest,
+    ): Response<PushOkResponse>
+
+    @POST("api/plugins/hermes-push/test")
+    suspend fun pushTest(
+        @Body body: PushDeviceRequest,
+    ): Response<PushOkResponse>
 
     @POST("api/profiles")
     suspend fun createProfile(

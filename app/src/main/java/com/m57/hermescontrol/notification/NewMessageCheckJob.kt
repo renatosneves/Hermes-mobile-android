@@ -23,6 +23,9 @@ import com.m57.hermescontrol.data.model.ProfileInfo
 import com.m57.hermescontrol.data.remote.ApiClient
 import com.m57.hermescontrol.data.remote.NetworkResult
 import com.m57.hermescontrol.data.remote.safeApiCall
+import com.m57.hermescontrol.notification.push.PushRegistrar
+import com.m57.hermescontrol.notification.push.PushSafetyNet
+import com.m57.hermescontrol.notification.push.PushStore
 import com.m57.hermescontrol.ui.bots.BotsPresentation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,9 +38,11 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Periodic check for new bot messages while the app is closed or in the background. Reads the
- * Bots roster over REST (no server push), and posts one notification per bot whose newest message
- * is the bot's own and newer than what was last seen. Android runs it about every 15 minutes at
- * best; Doze and battery savers can delay it further.
+ * Bots roster over REST, and posts one notification per bot whose newest message is the bot's
+ * own and newer than what was last seen. Without working push it runs about every 15 minutes at
+ * best; Doze and battery savers can delay it further. While push is registered and fresh it
+ * drops to a rare safety net (every 6 hours, only when the battery is not low), and each run
+ * also retries a push registration that did not reach the server.
  */
 class NewMessageCheckJob : JobService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -48,9 +53,12 @@ class NewMessageCheckJob : JobService() {
         running =
             scope.launch {
                 try {
+                    runCatching { retryPushRegistration(appContext) }
                     runCatching { checkOnce(appContext) }
                 } finally {
                     jobFinished(params, false)
+                    // Push may have gone stale (or recovered) since the job was scheduled.
+                    runCatching { sync(appContext) }
                 }
             }
         return true
@@ -69,8 +77,6 @@ class NewMessageCheckJob : JobService() {
         private const val KEY_BACKGROUNDED_AT = "app_backgrounded_at"
         private const val PREVIEW_MAX_CHARS = 80
         private const val PAGE_SIZE = 3
-        private const val PERIOD_MS = 15 * 60 * 1000L
-        private const val FLEX_MS = 5 * 60 * 1000L
         private const val AUTH_WAIT_MS = 10_000L
         private const val REQUEST_TIMEOUT_MS = 20_000L
 
@@ -91,7 +97,11 @@ class NewMessageCheckJob : JobService() {
                 .apply()
         }
 
-        /** Make the scheduled job match the setting: scheduled when on (once), cancelled when off. */
+        /**
+         * Make the scheduled job match the settings: cancelled when the setting is off, otherwise
+         * periodic at the interval [PushSafetyNet] picks (rare when push is healthy, 15 minutes
+         * when not). A job already scheduled at the right interval is left alone.
+         */
         fun sync(context: Context) {
             val scheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as? JobScheduler ?: return
             val enabled = runCatching { AuthManager.isNotifyNewBotMessages() }.getOrDefault(true)
@@ -99,15 +109,32 @@ class NewMessageCheckJob : JobService() {
                 scheduler.cancel(JOB_ID)
                 return
             }
-            if (scheduler.getPendingJob(JOB_ID) != null) return
+            val healthy =
+                PushSafetyNet.isPushHealthy(
+                    hasEndpoint = PushStore.endpoint(context) != null,
+                    lastRegisterOkMs = PushStore.lastRegisterOkMs(context),
+                    nowMs = System.currentTimeMillis(),
+                    degraded = PushStore.isDegraded(context),
+                )
+            val interval = PushSafetyNet.intervalMs(healthy)
+            if (scheduler.getPendingJob(JOB_ID)?.intervalMillis == interval) return
             val info =
                 JobInfo
                     .Builder(JOB_ID, ComponentName(context, NewMessageCheckJob::class.java))
-                    .setPeriodic(PERIOD_MS, FLEX_MS)
+                    .setPeriodic(interval, PushSafetyNet.flexMs(healthy))
                     .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+                    .setRequiresBatteryNotLow(healthy)
                     .setPersisted(true)
                     .build()
             scheduler.schedule(info)
+        }
+
+        private suspend fun retryPushRegistration(context: Context) {
+            if (PushStore.endpoint(context) == null) return
+            val needed =
+                PushStore.isRegisterPending(context) ||
+                    PushSafetyNet.needsRegisterRefresh(PushStore.lastRegisterOkMs(context), System.currentTimeMillis())
+            if (needed) PushRegistrar.registerNow(context)
         }
 
         private suspend fun checkOnce(context: Context) {

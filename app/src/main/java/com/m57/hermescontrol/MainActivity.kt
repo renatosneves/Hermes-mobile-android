@@ -24,6 +24,7 @@ import com.m57.hermescontrol.data.ws.HermesWsClient
 import com.m57.hermescontrol.diagnostics.FreezeReportPrompt
 import com.m57.hermescontrol.notification.NotificationHelper
 import com.m57.hermescontrol.notification.NotificationReplyReceiver
+import com.m57.hermescontrol.notification.push.PushNotifier
 import com.m57.hermescontrol.share.ShareInbox
 import com.m57.hermescontrol.theme.HermesControlTheme
 import com.m57.hermescontrol.ui.common.ErrorState
@@ -143,6 +144,7 @@ class MainActivity : ComponentActivity() {
             UpdateNoticeManager.checkOnLaunch()
         }
         NotificationHelper.setAppForeground(this, true)
+        PushNotifier.cancelForOpenChat(this)
         ExternalActivityLifecycleGuard.onHostResumed()
         NotificationHelper.stop(this)
     }
