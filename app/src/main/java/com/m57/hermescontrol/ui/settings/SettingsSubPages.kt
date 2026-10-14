@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.m57.hermescontrol.R
@@ -40,6 +41,8 @@ import com.m57.hermescontrol.ui.settings.components.BehaviorSection
 import com.m57.hermescontrol.ui.settings.components.ChatSection
 import com.m57.hermescontrol.ui.settings.components.ConnectionSection
 import com.m57.hermescontrol.ui.settings.components.LanguageSection
+import com.m57.hermescontrol.ui.settings.components.PushSection
+import com.m57.hermescontrol.ui.settings.components.PushSectionActions
 import com.m57.hermescontrol.ui.settings.components.TestConnectionButton
 import com.m57.hermescontrol.ui.settings.components.TestResultCard
 import com.m57.hermescontrol.ui.settings.components.VaultItemsSection
@@ -60,6 +63,8 @@ import com.m57.hermescontrol.ui.settings.components.VaultUnlockDialog
 internal fun SettingsConnectionPage(
     onBack: () -> Unit,
     onLogout: () -> Unit,
+    onOpenDrawer: (() -> Unit)? = null,
+    showLogout: Boolean = true,
     viewModel: SettingsViewModel = viewModel { SettingsViewModel() },
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -67,10 +72,9 @@ internal fun SettingsConnectionPage(
 
     HermesScaffold(
         title = { Text(stringResource(R.string.settings_sec_connection)) },
-        navigationIcon = NavIcon.Back(onBack),
-        // Non-primary drill-down: opt out of drawer gestures so the scrim can't
-        // get stuck open (issue #619). DrawerGestureController handles the close.
-        drawerGesturesEnabled = false,
+        navigationIcon = onOpenDrawer?.let { NavIcon.Menu(it) } ?: NavIcon.Back(onBack),
+        // Global Connections enables drawer navigation; settings drill-down disables it (issue #619).
+        drawerGesturesEnabled = onOpenDrawer != null,
     ) {
         Column(
             modifier =
@@ -93,20 +97,31 @@ internal fun SettingsConnectionPage(
                 onTest = viewModel::testConnection,
             )
 
-            Spacer(modifier = Modifier.height(2.dp))
-
-            Button(
+            androidx.compose.material3.OutlinedButton(
                 onClick = {
-                    viewModel.logout()
-                    onLogout()
+                    com.m57.hermescontrol.NavigationController.navigateTo(
+                        com.m57.hermescontrol.ClientCertificatesScreen,
+                    )
                 },
                 modifier = Modifier.fillMaxWidth(),
-                colors =
-                    ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                    ),
-            ) {
-                Text(stringResource(R.string.settings_logout))
+            ) { Text(stringResource(R.string.mtls_title)) }
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            if (showLogout) {
+                Button(
+                    onClick = {
+                        viewModel.logout()
+                        onLogout()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors =
+                        ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                        ),
+                ) {
+                    Text(stringResource(R.string.settings_logout))
+                }
             }
         }
     }
@@ -241,8 +256,41 @@ internal fun SettingsBehaviorPage(
                 onAutoReconnectChange = viewModel::onAutoReconnectChange,
                 keepConnectedInBackground = state.keepConnectedInBackground,
                 onKeepConnectedInBackgroundChange = viewModel::onKeepConnectedInBackgroundChange,
+                notifySessionCompletions = state.notifySessionCompletions,
+                onNotifySessionCompletionsChange = viewModel::onNotifySessionCompletionsChange,
+                notifyNewBotMessages = state.notifyNewBotMessages,
+                onNotifyNewBotMessagesChange = viewModel::onNotifyNewBotMessagesChange,
                 restoreLastSession = state.restoreLastSession,
                 onRestoreLastSessionChange = viewModel::onRestoreLastSessionChange,
+            )
+            val pushViewModel: PushSettingsViewModel =
+                viewModel {
+                    val app =
+                        this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY]
+                            ?: error("Application not available")
+                    PushSettingsViewModel(app)
+                }
+            val pushState by pushViewModel.uiState.collectAsStateWithLifecycle()
+            // Back from the Play Store or the distributor picker: re-read what is installed.
+            LifecycleResumeEffect(Unit) {
+                pushViewModel.refresh()
+                onPauseOrDispose {}
+            }
+            PushSection(
+                state = pushState,
+                actions =
+                    PushSectionActions(
+                        onApprovals = pushViewModel::setApprovals,
+                        onTasks = pushViewModel::setTasks,
+                        onMessages = pushViewModel::setMessages,
+                        onScheduled = pushViewModel::setScheduled,
+                        onBotLevel = pushViewModel::setBotLevel,
+                        onQuietEnabled = pushViewModel::setQuietEnabled,
+                        onQuietStart = pushViewModel::setQuietStart,
+                        onQuietEnd = pushViewModel::setQuietEnd,
+                        onSendTest = pushViewModel::sendTest,
+                        onRefresh = pushViewModel::refresh,
+                    ),
             )
         }
     }

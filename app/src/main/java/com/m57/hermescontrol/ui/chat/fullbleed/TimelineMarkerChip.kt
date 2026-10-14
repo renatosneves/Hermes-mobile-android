@@ -10,10 +10,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.m57.hermescontrol.R
+import com.m57.hermescontrol.theme.BotsPalette
+import com.m57.hermescontrol.theme.LocalToybox
+import com.m57.hermescontrol.theme.toySticker
 import com.m57.hermescontrol.ui.chat.ChatMessage
 import com.m57.hermescontrol.ui.chat.DisplayKind
 
@@ -79,6 +85,23 @@ internal fun TimelineMarkerChip(
         modifier = modifier.fillMaxWidth(),
         contentAlignment = Alignment.Center,
     ) {
+        if (LocalToybox.current) {
+            // A tilted yellow sticker with no shadow.
+            val shape = RoundedCornerShape(14.dp)
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.ExtraBold),
+                color = BotsPalette.ToyOutline,
+                modifier =
+                    Modifier
+                        .rotate(-2f)
+                        .toySticker(shape, BotsPalette.ToyYellow, shadow = null)
+                        .clip(shape)
+                        .padding(horizontal = 14.dp, vertical = 4.dp)
+                        .testTag("timeline_marker"),
+            )
+            return@Box
+        }
         Surface(
             shape = RoundedCornerShape(50),
             color = MaterialTheme.colorScheme.surfaceContainerHigh,

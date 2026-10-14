@@ -11,7 +11,10 @@ import com.m57.hermescontrol.R
 import com.m57.hermescontrol.data.local.AuthManager
 import com.m57.hermescontrol.data.session.ActiveSessionHolder
 import com.m57.hermescontrol.data.ws.HermesWsClient
-import com.m57.hermescontrol.data.ws.WsMethods
+import com.m57.hermescontrol.data.ws.contract.DESKTOP_SESSION_SOURCE
+import com.m57.hermescontrol.data.ws.contract.PromptSubmitParams
+import com.m57.hermescontrol.data.ws.contract.RpcMethods
+import com.m57.hermescontrol.data.ws.contract.SessionResumeParams
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,6 +26,15 @@ open class NotificationReplyReceiver : BroadcastReceiver() {
     companion object {
         const val KEY_TEXT_REPLY = "key_text_reply"
         const val EXTRA_SESSION_ID = "extra_session_id"
+
+        /** Optional: the bot (profile) the session belongs to, for a push reply to a non-active bot. */
+        const val EXTRA_PROFILE = "extra_profile"
+
+        /** Optional: tag of the push notification to dismiss once the reply went out. */
+        const val EXTRA_DISMISS_TAG = "extra_dismiss_tag"
+
+        /** Optional: id of the push notification to dismiss with [EXTRA_DISMISS_TAG]. */
+        const val EXTRA_DISMISS_ID = "extra_dismiss_id"
         private const val REPLY_TIMEOUT_MS = 5_000L
 
         /** Overall deadline for persisting and submitting one notification reply. */
@@ -76,6 +88,9 @@ open class NotificationReplyReceiver : BroadcastReceiver() {
         val remoteInput = RemoteInput.getResultsFromIntent(intent)
         val replyText = remoteInput?.getCharSequence(KEY_TEXT_REPLY)?.toString()
         val sessionId = intent.getStringExtra(EXTRA_SESSION_ID)
+        val profileOverride = intent.getStringExtra(EXTRA_PROFILE)?.takeIf { it.isNotBlank() }
+        val dismissTag = intent.getStringExtra(EXTRA_DISMISS_TAG)
+        val dismissId = intent.getIntExtra(EXTRA_DISMISS_ID, 0)
 
         if (!replyText.isNullOrBlank() && !sessionId.isNullOrBlank()) {
             val pendingResult = goAsyncCompat()
@@ -108,13 +123,12 @@ open class NotificationReplyReceiver : BroadcastReceiver() {
 
                             val runtimeSessionId =
                                 ActiveSessionHolder.resolveRuntimeSessionId(sessionId)
-                                    ?: resumeSession(sessionId)
-                            HermesWsClient
-                                .request(
-                                    WsMethods.PROMPT_SUBMIT,
-                                    mapOf("session_id" to runtimeSessionId, "text" to replyText),
-                                    timeoutMs = REPLY_TIMEOUT_MS,
-                                ).await()
+                                    ?: resumeSession(sessionId, profileOverride)
+                            HermesWsClient.call(
+                                method = RpcMethods.PROMPT_SUBMIT,
+                                params = PromptSubmitParams(sessionId = runtimeSessionId, text = replyText),
+                                timeoutMs = REPLY_TIMEOUT_MS,
+                            )
 
                             val entity =
                                 com.m57.hermescontrol.data.local.ChatMessageEntity(
@@ -131,6 +145,11 @@ open class NotificationReplyReceiver : BroadcastReceiver() {
 
                             val repliedNotification = buildReplyNotification(context)
                             ReplyNotificationTracker.postRepliedNotification(context, repliedNotification)
+                            if (dismissTag != null) {
+                                // A push notification stays on screen with a spinner until it is replaced.
+                                (context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)
+                                    ?.cancel(dismissTag, dismissId)
+                            }
 
                             // The follow-up turn is now pending — keep the
                             // foreground service alive if it retired after the
@@ -151,25 +170,26 @@ open class NotificationReplyReceiver : BroadcastReceiver() {
         }
     }
 
-    private suspend fun resumeSession(storedSessionId: String): String {
-        val profile = AuthManager.activeProfileId.value
+    private suspend fun resumeSession(
+        storedSessionId: String,
+        profileOverride: String? = null,
+    ): String {
+        val profile = profileOverride ?: AuthManager.activeProfileId.value?.takeIf { it.isNotBlank() }
         val params =
-            mutableMapOf<String, Any>(
-                "session_id" to storedSessionId,
-                "omit_messages" to true,
+            SessionResumeParams(
+                sessionId = storedSessionId,
+                source = DESKTOP_SESSION_SOURCE,
+                omitMessages = true,
+                profile = profile,
             )
-        if (!profile.isNullOrBlank()) {
-            params["profile"] = profile
-        }
         val result =
-            HermesWsClient
-                .request(
-                    WsMethods.SESSION_RESUME,
-                    params,
-                    timeoutMs = REPLY_TIMEOUT_MS,
-                ).await() as? Map<*, *>
+            HermesWsClient.call(
+                method = RpcMethods.SESSION_RESUME,
+                params = params,
+                timeoutMs = REPLY_TIMEOUT_MS,
+            )
         val runtimeSessionId =
-            (result?.get("session_id") as? String)?.takeIf { it.isNotBlank() }
+            result.sessionId?.takeIf { it.isNotBlank() }
                 ?: error("Resume returned no runtime session id")
         ActiveSessionHolder.set(runtimeSessionId, storedSessionId)
         return runtimeSessionId

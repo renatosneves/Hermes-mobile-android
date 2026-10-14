@@ -15,6 +15,7 @@ internal fun ChatSearchScrollEffect(
     renderedFirstId: String?,
     turns: List<ChatTurn>,
     scrollController: ChatScrollController,
+    toolsOpen: ToolsOpen = ToolsClosed,
 ) {
     LaunchedEffect(
         searchState.isActive,
@@ -22,12 +23,16 @@ internal fun ChatSearchScrollEffect(
         searchState.matchIndices,
         searchState.matchOffsets,
         searchState.matchTargets,
+        searchState.currentMatchId,
+        messages,
         renderedFirstId,
     ) {
         val index = searchState.currentIndex
         if (!searchState.isActive || index !in searchState.matchIndices.indices) return@LaunchedEffect
         val messageIndex = searchState.matchIndices[index]
         val message = messages.getOrNull(messageIndex) ?: return@LaunchedEffect
+        // Do not scroll to a different row while a presentation transition is being rescanned.
+        if (message.id != searchState.currentMatchId) return@LaunchedEffect
         val target = searchState.matchTargets.getOrNull(index) ?: return@LaunchedEffect
         val match =
             com.m57.hermescontrol.ui.chat.SearchMatch(
@@ -36,7 +41,7 @@ internal fun ChatSearchScrollEffect(
                 target = target,
             )
         // A hit in a staged history prefix is retried when the prefix enters layout.
-        val lazyIndex = searchMatchToLazyIndex(turns, messages, match) ?: return@LaunchedEffect
+        val lazyIndex = searchMatchToLazyIndex(turns, messages, match, toolsOpen) ?: return@LaunchedEffect
         scrollController.scrollToSearchMatch(lazyIndex, match.contentOffset, searchTextFor(message, target).length)
     }
 }

@@ -146,13 +146,22 @@ object VoiceLivePlanner {
     /** Markdown and links read badly aloud; keep the words. */
     fun speakable(text: String): String =
         text
-            .replace(Regex("""```[\s\S]*?```"""), " (code omitted) ")
-            .replace(Regex("""!\[[^\]]*]\([^)]*\)"""), " ")
-            .replace(Regex("""\[([^\]]+)]\([^)]*\)"""), "$1")
-            .replace(Regex("""https?://\S+"""), " link ")
-            .replace(Regex("""[*_`#>|~]+"""), "")
-            .replace(Regex("""^\s*[-•]\s+""", RegexOption.MULTILINE), "")
+            .replace(CODE_BLOCK, " (code omitted) ")
+            .replace(IMAGE, " ")
+            .replace(LINK, "$1")
+            .replace(URL, " link ")
+            .replace(MARKUP, "")
+            .replace(BULLET, "")
             .collapse()
+
+    // Compiled once: the reply feed runs these several times a second while Hermes writes.
+    private val CODE_BLOCK = Regex("""```[\s\S]*?```""")
+    private val IMAGE = Regex("""!\[[^\]]*]\([^)]*\)""")
+    private val LINK = Regex("""\[([^\]]+)]\([^)]*\)""")
+    private val URL = Regex("""https?://\S+""")
+    private val MARKUP = Regex("""[*_`#>|~]+""")
+    private val BULLET = Regex("""^\s*[-•]\s+""", RegexOption.MULTILINE)
+    private val WHITESPACE = Regex("""\s+""")
 
     /** A spoken "stop" (and friends) ends the conversation instead of becoming a request. */
     fun isStopCommand(utterance: String): Boolean {
@@ -164,5 +173,5 @@ object VoiceLivePlanner {
         return normalised in STOP_PHRASES
     }
 
-    private fun String.collapse(): String = replace(Regex("""\s+"""), " ").trim()
+    private fun String.collapse(): String = replace(WHITESPACE, " ").trim()
 }

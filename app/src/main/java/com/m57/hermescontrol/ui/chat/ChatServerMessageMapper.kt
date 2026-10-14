@@ -232,7 +232,9 @@ internal fun mapServerMessages(
                 rawContent
             }
         var attachments: List<Attachment>? = null
-        if (role == MessageRole.ASSISTANT && rawContent.contains("MEDIA:")) {
+        if (role == MessageRole.USER) {
+            attachments = userImageAttachments(finalContent, mediaUrl).takeIf { it.isNotEmpty() }
+        } else if (role == MessageRole.ASSISTANT && rawContent.contains("MEDIA:")) {
             val items = HostMediaExtractor.extract(rawContent)
             if (items.isNotEmpty()) {
                 finalContent = HostMediaExtractor.strip(rawContent)
@@ -274,7 +276,8 @@ internal fun mapServerMessages(
                 tokenCount = tokenCount,
                 completionId = completionId,
                 serverRowId = msg.id?.toLong()?.takeIf { it > 0L },
-            ),
+                reactions = msg.reactions,
+            ).normalizedGatewayNotice(),
         )
     }
 

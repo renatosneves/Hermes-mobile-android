@@ -21,8 +21,11 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.m57.hermescontrol.data.local.AuthManager
 import com.m57.hermescontrol.data.update.UpdateNoticeManager
 import com.m57.hermescontrol.data.ws.HermesWsClient
+import com.m57.hermescontrol.diagnostics.FreezeReportPrompt
 import com.m57.hermescontrol.notification.NotificationHelper
 import com.m57.hermescontrol.notification.NotificationReplyReceiver
+import com.m57.hermescontrol.notification.push.PushNotifier
+import com.m57.hermescontrol.share.ShareInbox
 import com.m57.hermescontrol.theme.HermesControlTheme
 import com.m57.hermescontrol.ui.common.ErrorState
 import com.m57.hermescontrol.ui.common.LoadingState
@@ -62,6 +65,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         consumeNotificationIntent(intent)
+        consumeShareIntent(intent)
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -108,6 +112,7 @@ class MainActivity : ComponentActivity() {
                                 LoadingState()
                             } else {
                                 MainNavigation()
+                                FreezeReportPrompt()
                             }
                         }
 
@@ -129,6 +134,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         consumeNotificationIntent(intent)
+        consumeShareIntent(intent)
     }
 
     override fun onResume() {
@@ -138,6 +144,7 @@ class MainActivity : ComponentActivity() {
             UpdateNoticeManager.checkOnLaunch()
         }
         NotificationHelper.setAppForeground(this, true)
+        PushNotifier.cancelForOpenChat(this)
         ExternalActivityLifecycleGuard.onHostResumed()
         NotificationHelper.stop(this)
     }
@@ -156,6 +163,17 @@ class MainActivity : ComponentActivity() {
         // idle connection when the user really leaves the app or locks the phone.
         if (!isChangingConfigurations) NotificationHelper.setAppForeground(this, false)
         super.onStop()
+    }
+
+    /** Something shared from another app: hold it and show the bot list so you can pick who gets it. */
+    private fun consumeShareIntent(intent: Intent?) {
+        if (!ShareInbox.isShare(intent)) return
+        val shared = Intent(intent)
+        // Handled once: a recreation must not re-deliver it.
+        intent?.action = null
+        ShareInbox.receive(applicationContext, shared) {
+            NavigationController.navigateTo(NavigationController.HomeScreen)
+        }
     }
 
     private fun consumeNotificationIntent(intent: Intent?) {

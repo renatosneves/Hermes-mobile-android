@@ -18,6 +18,7 @@ import com.m57.hermescontrol.theme.ThemePreference
 import com.m57.hermescontrol.theme.ThemePreset
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,6 +48,8 @@ data class SettingsUiState(
     val showTokensPerSecond: Boolean = true,
     val showModelProvider: Boolean = false,
     val keepConnectedInBackground: Boolean = false,
+    val notifySessionCompletions: Boolean = false,
+    val notifyNewBotMessages: Boolean = true,
     val profiles: List<ConnectionProfile> = emptyList(),
     val selectedProfileId: String? = null,
     val renameProfileName: String = "",
@@ -96,6 +99,8 @@ class SettingsViewModel(
         val showTokensPerSecond = AuthManager.isTokensPerSecondEnabled()
         val showModelProvider = AuthManager.isModelProviderShown()
         val keepConnectedInBackground = AuthManager.isKeepConnectedInBackground()
+        val notifySessionCompletions = AuthManager.isNotifySessionCompletions()
+        val notifyNewBotMessages = AuthManager.isNotifyNewBotMessages()
         val profiles = AuthManager.getConnectionProfiles()
         val appLanguage = AuthManager.getAppLanguage()
         val renameProfileName =
@@ -124,6 +129,8 @@ class SettingsViewModel(
                 showTokensPerSecond = showTokensPerSecond,
                 showModelProvider = showModelProvider,
                 keepConnectedInBackground = keepConnectedInBackground,
+                notifySessionCompletions = notifySessionCompletions,
+                notifyNewBotMessages = notifyNewBotMessages,
                 profiles = profiles,
                 selectedProfileId = selectedId,
                 renameProfileName = renameProfileName,
@@ -235,6 +242,10 @@ class SettingsViewModel(
 
         val profiles = AuthManager.getConnectionProfiles().toMutableList()
         val editingId = state.editingProfileId
+        val activeEndpointChanged =
+            editingId != null &&
+                editingId == AuthManager.getSelectedProfileId() &&
+                profiles.firstOrNull { it.id == editingId }?.resolveBaseUrl(AuthManager.getBaseUrl()) != normalized
 
         if (editingId != null) {
             // Update existing profile
@@ -252,17 +263,29 @@ class SettingsViewModel(
                 ConnectionProfile(
                     name = name,
                     baseUrl = normalized,
+                    wsAuthParam = "token",
                 )
             profiles.add(newProfile)
             AuthManager.saveConnectionProfiles(profiles)
             AuthManager.setProfileToken(newProfile.id, "")
-            AuthManager.setSelectedProfileId(newProfile.id)
             _uiState.update { it.copy(navigateToLogin = true) }
         }
 
         closeProfileDialog()
-        viewModelScope.launch(ioDispatcher) { loadSettings() }
-        ApiClient.rebuild()
+        viewModelScope.launch(ioDispatcher) {
+            withContext(NonCancellable) {
+                if (editingId == null) {
+                    ProfileSwitchCoordinator.prepareConnectionProfile(profiles.last().id)
+                } else if (editingId == AuthManager.getSelectedProfileId()) {
+                    if (activeEndpointChanged) AuthManager.setActiveProfileId(null)
+                    // Endpoint/auth changes on the active connection must move the socket too.
+                    ProfileSwitchCoordinator.switchConnectionProfile(editingId)
+                } else {
+                    ApiClient.rebuild()
+                }
+            }
+            loadSettings()
+        }
     }
 
     fun onCustomHeadersSaved() {
@@ -392,6 +415,16 @@ class SettingsViewModel(
     fun onKeepConnectedInBackgroundChange(enabled: Boolean) {
         _uiState.update { it.copy(keepConnectedInBackground = enabled) }
         AuthManager.setKeepConnectedInBackground(enabled)
+    }
+
+    fun onNotifySessionCompletionsChange(enabled: Boolean) {
+        _uiState.update { it.copy(notifySessionCompletions = enabled) }
+        AuthManager.setNotifySessionCompletions(enabled)
+    }
+
+    fun onNotifyNewBotMessagesChange(enabled: Boolean) {
+        _uiState.update { it.copy(notifyNewBotMessages = enabled) }
+        AuthManager.setNotifyNewBotMessages(enabled)
     }
 
     /** Reconcile the chat shortcut with changes made through Settings or another screen. */

@@ -24,6 +24,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.Json
@@ -137,16 +138,17 @@ class BotsViewModelTest {
             assertTrue(activeNowNames.contains("scout"))
             assertFalse(activeNowNames.contains("reviewer"))
 
-            // Hidden filtering: reviewer is hidden by default
+            // Hidden filtering: reviewer is hidden by default. Newest activity
+            // first, like WhatsApp: being the active profile does not lift a bot.
             val displayed = state.displayProfiles.map { it.name }
-            assertEquals(listOf("default", "scout"), displayed)
+            assertEquals(listOf("scout", "default"), displayed)
 
-            // Toggle show hidden (sorted: default (active), scout (worker active now), reviewer (canonical last_active))
+            // Toggle show hidden (scout 10 s ago, default 20 s ago, reviewer 500 s ago)
             viewModel.toggleShowHidden()
             val displayedWithHidden =
                 viewModel.uiState.value.displayProfiles
                     .map { it.name }
-            assertEquals(listOf("default", "reviewer", "scout"), displayedWithHidden)
+            assertEquals(listOf("scout", "default", "reviewer"), displayedWithHidden)
 
             // Search filter
             viewModel.setSearchQuery("arxiv")
@@ -154,6 +156,36 @@ class BotsViewModelTest {
                 viewModel.uiState.value.displayProfiles
                     .map { it.name }
             assertEquals(listOf("scout"), searchResults)
+        }
+
+    @Test
+    fun `a refresh while one is running is folded into it`() =
+        runTest(testDispatcher) {
+            val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+            coEvery { mockApi.getProfiles() } coAnswers {
+                gate.await()
+                Response.success(ProfilesResponse(listOf(ProfileInfo(name = "default"))))
+            }
+            coEvery { mockApi.getActiveProfile() } returns Response.success(ActiveProfileResponse(active = "default"))
+
+            val viewModel = BotsViewModel(ioDispatcher = testDispatcher, autoLoad = false)
+            viewModel.loadBots()
+            // Let it reach the slow call without running the clock into its timeout.
+            runCurrent()
+            viewModel.loadBots(isRefresh = true)
+            viewModel.loadBots(isRefresh = true)
+            runCurrent()
+            gate.complete(Unit)
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) { mockApi.getProfiles() }
+            assertFalse(viewModel.uiState.value.isLoading)
+            assertFalse(viewModel.uiState.value.isRefreshing)
+            assertEquals(
+                listOf("default"),
+                viewModel.uiState.value.profiles
+                    .map { it.name },
+            )
         }
 
     @Test
@@ -354,5 +386,38 @@ class BotsViewModelTest {
 
             assertEquals("Local Only Group", groups[1].name)
             assertEquals(1, groups[1].members.size)
+        }
+
+    @Test
+    fun `a pinned bot moves to the pinned row and comes back when unpinned`() =
+        runTest(testDispatcher) {
+            val profiles = listOf(ProfileInfo(name = "alpha"), ProfileInfo(name = "beta"))
+            coEvery { mockApi.getProfiles() } returns Response.success(ProfilesResponse(profiles))
+            coEvery { mockApi.getActiveProfile() } returns Response.success(ActiveProfileResponse(active = "alpha"))
+            BotPinStore.all().forEach(BotPinStore::unpin)
+
+            try {
+                val viewModel = BotsViewModel(ioDispatcher = testDispatcher, autoLoad = false)
+                viewModel.loadBots()
+                advanceUntilIdle()
+
+                viewModel.togglePin("beta")
+                var state = viewModel.uiState.value
+                assertEquals(listOf("beta"), state.pinnedProfiles.map { it.name })
+                assertEquals(listOf("alpha"), state.displayProfiles.map { it.name })
+
+                // A search lists pinned bots as ordinary rows.
+                viewModel.setSearchQuery("beta")
+                state = viewModel.uiState.value
+                assertEquals(listOf("beta"), state.displayProfiles.map { it.name })
+                viewModel.setSearchQuery("")
+
+                viewModel.togglePin("beta")
+                state = viewModel.uiState.value
+                assertTrue(state.pinnedProfiles.isEmpty())
+                assertEquals(setOf("alpha", "beta"), state.displayProfiles.map { it.name }.toSet())
+            } finally {
+                BotPinStore.all().forEach(BotPinStore::unpin)
+            }
         }
 }

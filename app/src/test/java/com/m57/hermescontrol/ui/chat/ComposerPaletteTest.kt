@@ -2,6 +2,8 @@ package com.m57.hermescontrol.ui.chat.components
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import com.m57.hermescontrol.theme.BotsPalette
+import com.m57.hermescontrol.theme.GlyphWhite
 import com.m57.hermescontrol.theme.ThemePreset
 import com.m57.hermescontrol.theme.resolveColorScheme
 import org.junit.Assert.assertTrue
@@ -67,10 +69,34 @@ class ComposerPaletteTest {
     }
 
     @Test
+    fun actionButtonFollowsThePresetPrimaryWhenItIsLegible() {
+        forEveryPresetMode { mode, p, _ ->
+            val scheme = resolveColorScheme(ThemePreset.valueOf(mode.substringBefore(" ")), mode.endsWith("true"))
+            if (contrast(scheme.primary, p.card) >= 3f) {
+                assertTrue("$mode action must be primary", p.action == scheme.primary)
+                assertTrue(
+                    "$mode glyph must be white or onPrimary",
+                    p.onAction == scheme.onPrimary || p.onAction == GlyphWhite,
+                )
+            }
+        }
+    }
+
+    @Test
     fun controlsAndCardEdgeStayVisibleInEveryPresetMode() {
         forEveryPresetMode { mode, p, background ->
             assertContrast("$mode control/card", p.control, p.card, 1.15f)
             assertContrast("$mode card border/background", p.cardBorder, background, 1.15f)
+        }
+    }
+
+    @Test
+    fun botRoomActionButtonHasAVisibleGlyph() {
+        val base = resolveColorScheme(ThemePreset.entries.first(), darkTheme = true)
+        BotsPalette.Hues.forEach { hue ->
+            val p = composerPalette(BotsPalette.chatScheme(base, hue))
+            assertTrue("glyph must be opaque", p.onAction.alpha == 1f)
+            assertContrast("bot room glyph/action", p.onAction, p.action, 3f)
         }
     }
 }

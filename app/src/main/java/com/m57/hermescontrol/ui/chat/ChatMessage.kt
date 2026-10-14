@@ -1,6 +1,7 @@
 package com.m57.hermescontrol.ui.chat
 
 import com.m57.hermescontrol.data.model.Attachment
+import com.m57.hermescontrol.data.model.MessageReaction
 import java.util.UUID
 
 /**
@@ -97,6 +98,10 @@ data class ChatMessage(
     val restId: String? = null,
     /** Cache insertion sequence for unconfirmed local rows; null before first persistence. */
     val localOrder: Long? = null,
+    /** Placement only: preceding confirmed server order. Never an identity or delivery receipt. */
+    val localAnchorOrder: Long? = null,
+    /** A live unresolved predecessor whose eventual canonical alias determines local placement. */
+    val localPredecessorId: String? = null,
     /** Persisted before prompt submission so process death cannot turn an unsent prompt into old history. */
     val messageProvenance: MessageProvenance = MessageProvenance.UNKNOWN,
     /** Read from history, not observed live in this view. Never persisted as delivery state. */
@@ -113,6 +118,8 @@ data class ChatMessage(
      * Scoped to the owning profile store; transient.
      */
     val serverRowId: Long? = null,
+    /** Emoji tapbacks on this message (REST `display_metadata` or live `message.reaction`); transient. */
+    val reactions: List<MessageReaction> = emptyList(),
 )
 
 /** Cached REST rows already carry their canonical identity in the persisted primary key. */

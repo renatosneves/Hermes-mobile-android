@@ -61,8 +61,7 @@ internal fun StreamingFullBleedWithTypingEffect(
                     break
                 }
                 // Only split when we need to check for new content arriving
-                val words = currentContent.value.split(" ")
-                wordCount = words.size
+                wordCount = currentContent.value.count { it == ' ' } + 1
                 if (visibleWordCount < wordCount) continue
                 delay(100)
             }
@@ -70,18 +69,20 @@ internal fun StreamingFullBleedWithTypingEffect(
         visibleWordCount = Int.MAX_VALUE
     }
 
-    // Derive display text from the latest full content at each recomposition
-    val words = remember(streaming.content) { streaming.content.split(" ") }
+    // Where each word ends, so a reveal step is one substring rather than a split and re-join
+    // of the whole reply.
+    val content = streaming.content
+    val wordEnds = remember(content) { wordEndOffsets(content) }
     val visibleCount =
         if (visibleWordCount >= Int.MAX_VALUE / 2) {
-            words.size
+            wordEnds.size
         } else {
-            visibleWordCount.coerceIn(0, words.size)
+            visibleWordCount.coerceIn(0, wordEnds.size)
         }
     val isStreaming = currentIsStreaming.value
     val displayText =
-        remember(words, visibleCount, caretVisible, isStreaming) {
-            words.take(visibleCount.coerceAtLeast(1)).joinToString(" ") +
+        remember(content, visibleCount, caretVisible, isStreaming) {
+            content.substring(0, wordEnds[visibleCount.coerceAtLeast(1) - 1]) +
                 if (caretVisible && isStreaming) "▍" else ""
         }
 
@@ -100,4 +101,16 @@ internal fun StreamingFullBleedWithTypingEffect(
         searchQuery = "",
         isCurrentMatch = false,
     )
+}
+
+/** End offset of each space-separated word: the same words `split(" ")` gives, without copying. */
+internal fun wordEndOffsets(text: String): IntArray {
+    val ends = ArrayList<Int>()
+    var i = text.indexOf(' ')
+    while (i >= 0) {
+        ends += i
+        i = text.indexOf(' ', i + 1)
+    }
+    ends += text.length
+    return ends.toIntArray()
 }

@@ -7,16 +7,26 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,16 +37,27 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
+import coil3.request.allowHardware
+import coil3.request.transformations
+import coil3.toBitmap
+import com.m57.hermescontrol.R
 import com.m57.hermescontrol.theme.BotsPalette
+import com.m57.hermescontrol.theme.LocalToybox
+import com.m57.hermescontrol.theme.ToyFonts
+import com.m57.hermescontrol.theme.toySticker
 import com.m57.hermescontrol.ui.common.resolveAvatarShape
 
 enum class OrbPresence { NONE, RECENT, IDLE }
@@ -57,33 +78,37 @@ fun BotOrb(
     shapeKey: String? = null,
     imageUrl: String? = null,
     attention: Boolean = false,
+    selected: Boolean = false,
+    tilt: Float = 0f,
 ) {
+    if (LocalToybox.current) {
+        ToyTile(initials, hue, modifier, size, working, presence, team, imageUrl, attention, selected, tilt)
+        return
+    }
     val shape = remember(shapeKey, size) { resolveAvatarShape(shapeKey, size) }
-    val pulse =
-        if (attention) {
-            val transition = rememberInfiniteTransition(label = "orb-attention")
-            val value by transition.animateFloat(
+    // Animated values are read only while drawing, so a spinning ring redraws without recomposing.
+    val motion = DecorativeMotion.enabled
+    val pulse: State<Float>? =
+        if (attention && motion) {
+            rememberInfiniteTransition(label = "orb-attention").animateFloat(
                 initialValue = 0.45f,
                 targetValue = 1f,
                 animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
                 label = "orb-attention-alpha",
             )
-            value
         } else {
-            0f
+            null
         }
-    val spin =
-        if (working) {
-            val transition = rememberInfiniteTransition(label = "orb-spin")
-            val angle by transition.animateFloat(
+    val spin: State<Float>? =
+        if (working && motion) {
+            rememberInfiniteTransition(label = "orb-spin").animateFloat(
                 initialValue = 0f,
                 targetValue = 360f,
                 animationSpec = infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Restart),
                 label = "orb-angle",
             )
-            angle
         } else {
-            0f
+            null
         }
 
     Box(modifier = modifier.size(size + 10.dp).testTag("bot_orb"), contentAlignment = Alignment.Center) {
@@ -115,9 +140,9 @@ fun BotOrb(
                         } else {
                             drawRect(
                                 Brush.radialGradient(
-                                    0f to lerp(hue, BotsPalette.Fg, 0.7f),
+                                    0f to lerp(hue, BotsPalette.Highlight, 0.7f),
                                     0.38f to hue,
-                                    1f to lerp(hue, BotsPalette.Ink, 0.55f),
+                                    1f to lerp(hue, BotsPalette.OnHue, 0.55f),
                                     center = Offset(center.x - r * 0.36f, center.y - r * 0.44f),
                                     radius = r * 1.7f,
                                 ),
@@ -126,25 +151,21 @@ fun BotOrb(
                     },
             contentAlignment = Alignment.Center,
         ) {
+            // A picture is drawn above the body (below), so it can spill past the orb.
             if (!imageUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                Unit
             } else if (team) {
                 Icon(
                     imageVector = Icons.Filled.Group,
                     contentDescription = null,
-                    tint = BotsPalette.Ink,
+                    tint = BotsPalette.OnHue,
                     modifier = Modifier.size(size * 0.5f),
                 )
             } else {
                 val fontSize = with(LocalDensity.current) { (size * 0.34f).toSp() }
                 Text(
                     text = initials,
-                    color = BotsPalette.Ink,
+                    color = BotsPalette.OnHue,
                     fontSize = fontSize,
                     fontWeight = FontWeight.ExtraBold,
                     letterSpacing = (-0.3).sp,
@@ -152,13 +173,26 @@ fun BotOrb(
                 )
             }
         }
+        if (!imageUrl.isNullOrBlank()) {
+            // A picture on a plain or see-through background is shown whole (Fit, never zoomed or
+            // clipped, so nothing is cut); any other fills the orb shape.
+            val request = rememberAvatarRequest(imageUrl)
+            var breakout by remember(imageUrl) { mutableStateOf(false) }
+            AsyncImage(
+                model = request,
+                contentDescription = null,
+                contentScale = if (breakout) ContentScale.Fit else ContentScale.Crop,
+                onSuccess = { state -> breakout = hasClearCorners(state.result.image.toBitmap()) },
+                modifier = if (breakout) Modifier.size(size) else Modifier.size(size).clip(shape),
+            )
+        }
         // Working ring and presence dot sit above the body.
         Canvas(modifier = Modifier.fillMaxSize()) {
             val orbRadius = (size.toPx()) / 2f
             val c = center
             if (attention) {
                 drawCircle(
-                    color = BotsPalette.Attention.copy(alpha = pulse),
+                    color = BotsPalette.Attention.copy(alpha = pulse?.value ?: 1f),
                     radius = orbRadius + 3.dp.toPx(),
                     center = c,
                     style = Stroke(width = 2.dp.toPx()),
@@ -166,7 +200,7 @@ fun BotOrb(
             } else if (working) {
                 val ringRadius = orbRadius + 4.dp.toPx()
                 val stroke = 2.dp.toPx()
-                rotate(spin, pivot = c) {
+                rotate(spin?.value ?: 0f, pivot = c) {
                     drawArc(
                         brush =
                             Brush.sweepGradient(
@@ -197,4 +231,150 @@ fun BotOrb(
             }
         }
     }
+}
+
+@Composable
+private fun rememberAvatarRequest(imageUrl: String): ImageRequest {
+    val context = LocalPlatformContext.current
+    return remember(imageUrl) {
+        ImageRequest
+            .Builder(context)
+            .data(imageUrl)
+            .transformations(AvatarCutoutTransformation())
+            .allowHardware(false)
+            .build()
+    }
+}
+
+/**
+ * Toybox avatar: a pastel sticker tile (outline, hard shadow) holding the whole picture, fitted
+ * and clipped to the inner corners so nothing is cut. Without a picture it shows the initials.
+ */
+@Composable
+private fun ToyTile(
+    initials: String,
+    hue: Color,
+    modifier: Modifier,
+    size: Dp,
+    working: Boolean,
+    presence: OrbPresence,
+    team: Boolean,
+    imageUrl: String?,
+    attention: Boolean,
+    selected: Boolean,
+    tilt: Float,
+) {
+    val corner = size * 0.25f
+    val tileShape = RoundedCornerShape(corner)
+    val inner = size * 0.075f
+    // Small tiles (member strips, thinking rows) get a lighter outline and shadow.
+    val line = (size * 0.06f).coerceIn(1.5.dp, 3.dp)
+    val depth = (size * 0.07f).coerceIn(2.dp, 4.dp)
+    val innerShape = RoundedCornerShape((corner - inner).coerceAtLeast(2.dp))
+    val pulse: State<Float>? =
+        if (attention && DecorativeMotion.enabled) {
+            rememberInfiniteTransition(label = "tile-attention").animateFloat(
+                initialValue = 0.45f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+                label = "tile-attention-alpha",
+            )
+        } else {
+            null
+        }
+    Box(modifier = modifier.size(size + 10.dp).testTag("bot_orb"), contentAlignment = Alignment.Center) {
+        Box(modifier = Modifier.size(size).graphicsLayer { rotationZ = tilt }) {
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .toySticker(
+                            shape = tileShape,
+                            fill = BotsPalette.toyTile(hue),
+                            shadow = if (selected) BotsPalette.ToyAccent else BotsPalette.ToyOutline,
+                            depth = depth,
+                            outline = line,
+                        ).padding(inner),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (!imageUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = rememberAvatarRequest(imageUrl),
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize().clip(innerShape),
+                    )
+                } else if (team) {
+                    Icon(
+                        imageVector = Icons.Filled.Group,
+                        contentDescription = null,
+                        tint = BotsPalette.ToyText,
+                        modifier = Modifier.size(size * 0.5f),
+                    )
+                } else {
+                    val fontSize = with(LocalDensity.current) { (size * 0.36f).toSp() }
+                    Text(
+                        text = initials,
+                        color = BotsPalette.ToyText,
+                        fontSize = fontSize,
+                        fontFamily = ToyFonts.Display,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                    )
+                }
+            }
+            if (attention) {
+                Box(
+                    modifier =
+                        Modifier
+                            .requiredSize(size + 6.dp)
+                            .align(Alignment.Center)
+                            .border(
+                                2.dp,
+                                BotsPalette.Attention.copy(alpha = pulse?.value ?: 1f),
+                                RoundedCornerShape(corner + 3.dp),
+                            ),
+                )
+            }
+        }
+        if (working && size >= 40.dp) {
+            Text(
+                text = stringResource(R.string.bots_busy_tag),
+                color = BotsPalette.ToyOutline,
+                fontSize = 9.sp,
+                fontFamily = ToyFonts.Display,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+                modifier =
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 3.dp, y = (-2).dp)
+                        .graphicsLayer { rotationZ = 6f }
+                        .toySticker(RoundedCornerShape(50), BotsPalette.ToyYellow, shadow = null, outline = 1.5.dp)
+                        .padding(horizontal = 5.dp, vertical = 1.dp),
+            )
+        }
+        if (presence != OrbPresence.NONE) {
+            val dot = (size * 0.26f).coerceAtLeast(10.dp)
+            Box(
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .size(dot + line * 2)
+                        .background(
+                            if (presence == OrbPresence.RECENT) BotsPalette.Ok else BotsPalette.Idle,
+                            CircleShape,
+                        ).border(line, BotsPalette.ToyOutline, CircleShape),
+            )
+        }
+    }
+}
+
+private fun hasClearCorners(bitmap: android.graphics.Bitmap): Boolean {
+    val w = bitmap.width
+    val h = bitmap.height
+    if (w < 2 || h < 2) return false
+    val px = IntArray(w * h)
+    bitmap.getPixels(px, 0, w, 0, 0, w, h)
+    return AvatarCutout.hasClearCorners(px, w, h)
 }

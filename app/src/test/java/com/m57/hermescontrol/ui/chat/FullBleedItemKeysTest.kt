@@ -20,7 +20,12 @@ class FullBleedItemKeysTest {
                     ChatMessage("s", MessageRole.SYSTEM, "event"),
                 ),
             )
-        assertEquals(listOf("user-u", "reasoning-a", "tool-t", "prose-a", "sys-s"), fullBleedItemKeys(turns))
+        // Tool steps fold into one summary row; opened, each step follows it.
+        assertEquals(listOf("user-u", "reasoning-a", "tools-t", "prose-a", "sys-s"), fullBleedItemKeys(turns))
+        assertEquals(
+            listOf("user-u", "reasoning-a", "tools-t", "tool-t", "prose-a", "sys-s"),
+            fullBleedItemKeys(turns) { key, _ -> key == "t" },
+        )
         assertEquals(mapOf("u" to 0, "a" to 3), messageIdToLazyIndex(turns))
         assertEquals(mapOf("u" to 2, "a" to 5), messageIdToLazyIndex(turns, leadingItems = 2))
     }
@@ -36,7 +41,11 @@ class FullBleedItemKeysTest {
         val turns = groupIntoTurns(messages)
 
         assertEquals(1, searchMatchToLazyIndex(turns, messages, SearchMatch(2, 0, SearchTarget.REASONING)))
-        assertEquals(2, searchMatchToLazyIndex(turns, messages, SearchMatch(1, 0, SearchTarget.TOOL)))
+        // A search hit opens its turn's steps.
+        assertEquals(
+            3,
+            searchMatchToLazyIndex(turns, messages, SearchMatch(1, 0, SearchTarget.TOOL)) { _, _ -> true },
+        )
         assertEquals(3, searchMatchToLazyIndex(turns, messages, SearchMatch(2, 0)))
     }
 
@@ -63,9 +72,9 @@ class FullBleedItemKeysTest {
             (0..149).map {
                 ChatMessage("old-$it", MessageRole.ASSISTANT, "answer", reasoningText = "thinking")
             }
-        assertEquals(listOf("tool-live-tool"), fullBleedItemKeys(groupIntoTurns(listOf(tool))))
+        assertEquals(listOf("tools-live-tool"), fullBleedItemKeys(groupIntoTurns(listOf(tool))))
         val keys = fullBleedItemKeys(groupIntoTurns(older + tool))
         assertEquals("reasoning-old-0", keys.first())
-        assertEquals(151, keys.indexOf("tool-live-tool"))
+        assertEquals(151, keys.indexOf("tools-live-tool"))
     }
 }

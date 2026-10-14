@@ -11,6 +11,7 @@ import android.speech.RecognizerIntent
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -18,16 +19,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.m57.hermescontrol.ExternalActivityLifecycleGuard
 import com.m57.hermescontrol.R
 import com.m57.hermescontrol.data.model.Attachment
-import com.m57.hermescontrol.ui.chat.ChatInputPolicy
 import com.m57.hermescontrol.ui.chat.SpeechInputHelper
 import com.m57.hermescontrol.ui.chat.VoiceNoteRecorder
 import kotlinx.coroutines.delay
@@ -35,6 +35,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.sqrt
 
 class ChatMediaLaunchers(
     val isListening: Boolean,
@@ -48,12 +49,13 @@ class ChatMediaLaunchers(
     val onMicHoldEnd: () -> Unit = {},
     val onMicHoldCancel: () -> Unit = {},
     val onMicLock: () -> Unit = {},
+    /** Normalized 0–1 mic level while recording; read fresh at draw time. */
+    val amplitudeProvider: () -> Float = { 0f },
 )
 
 @Composable
 fun rememberChatMediaLaunchers(
-    inputFieldValue: TextFieldValue,
-    onInputFieldValueChange: (TextFieldValue) -> Unit,
+    inputState: TextFieldState,
     onAddAttachment: (uri: String, name: String, mimeType: String, size: Long) -> Unit,
     onAddAttachments: (List<Attachment>) -> Unit,
     onVoiceNoteRecorded: (file: File) -> Unit,
@@ -63,10 +65,11 @@ fun rememberChatMediaLaunchers(
     context: Context = LocalContext.current,
 ): ChatMediaLaunchers {
     var isListening by remember { mutableStateOf(false) }
-    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
+    // Saveable: the camera app often recreates this screen (fold/unfold, low memory), and a lost
+    // uri used to drop the photo silently.
+    var pendingCameraUri by rememberSaveable { mutableStateOf<Uri?>(null) }
 
-    val currentInputFieldValue by rememberUpdatedState(inputFieldValue)
-    val currentOnInputFieldValueChange by rememberUpdatedState(onInputFieldValueChange)
+    val currentInputState by rememberUpdatedState(inputState)
     val currentOnAddAttachment by rememberUpdatedState(onAddAttachment)
     val currentOnAddAttachments by rememberUpdatedState(onAddAttachments)
     val currentOnVoiceNoteRecorded by rememberUpdatedState(onVoiceNoteRecorded)
@@ -131,14 +134,7 @@ fun rememberChatMediaLaunchers(
                         ?.firstOrNull()
                         .orEmpty()
                 if (spokenText.isNotBlank()) {
-                    val currentText = currentInputFieldValue.text
-                    val merged =
-                        if (currentText.isBlank()) {
-                            spokenText
-                        } else {
-                            "$currentText $spokenText"
-                        }
-                    currentOnInputFieldValueChange(ChatInputPolicy.commandFieldValue(merged))
+                    currentInputState.appendSpeechComposerDraft(spokenText)
                 }
             }
         }
@@ -226,8 +222,9 @@ fun rememberChatMediaLaunchers(
             ActivityResultContracts.TakePicture(),
         ) { success ->
             ExternalActivityLifecycleGuard.externalActivityReturned()
-            val uri = pendingCameraUri
+            val uri = pendingCameraUri ?: if (success) latestCameraPhoto(context) else null
             pendingCameraUri = null
+            if (success && uri == null) currentOnShowMessage(cameraErrorMsg)
             if (success && uri != null) {
                 try {
                     val fileName =
@@ -334,6 +331,23 @@ fun rememberChatMediaLaunchers(
         }
     }
 
+    // Mic-level feed for the recording blob (VoiceMicBlob). MediaRecorder's
+    // maxAmplitude is the PEAK since the last read, so this poller must stay
+    // the ONLY caller while recording. sqrt compression spreads speech
+    // dynamics the way Telegram's RMS/1800 normalization does.
+    val recordingAmplitude = remember { mutableStateOf(0f) }
+    LaunchedEffect(isRecordingVoice) {
+        if (isRecordingVoice) {
+            while (isRecordingVoice) {
+                recordingAmplitude.value =
+                    sqrt(voiceNoteRecorder.currentAmplitude().coerceAtLeast(0) / 32767f)
+                delay(AMPLITUDE_POLL_MS)
+            }
+        } else {
+            recordingAmplitude.value = 0f
+        }
+    }
+
     val onCameraTap: () -> Unit = {
         try {
             val timeStamp =
@@ -380,6 +394,26 @@ fun rememberChatMediaLaunchers(
             onMicHoldEnd = onMicHoldEnd,
             onMicHoldCancel = onMicHoldCancel,
             onMicLock = onMicLock,
+            amplitudeProvider = { recordingAmplitude.value },
         )
     }
 }
+
+/** Telegram samples their amplitude pipeline roughly this fast. */
+private const val AMPLITUDE_POLL_MS = 60L
+
+/** Freshest photo the camera wrote for us in the last few minutes, when the pending uri was lost. */
+private fun latestCameraPhoto(context: Context): Uri? {
+    val cutoff = System.currentTimeMillis() - CAMERA_PHOTO_MAX_AGE_MS
+    val file =
+        context.cacheDir
+            .listFiles { f -> f.name.startsWith("camera_") && f.name.endsWith(".jpg") }
+            ?.filter { it.length() > 0L && it.lastModified() >= cutoff }
+            ?.maxByOrNull { it.lastModified() }
+            ?: return null
+    return runCatching {
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    }.getOrNull()
+}
+
+private const val CAMERA_PHOTO_MAX_AGE_MS = 10 * 60 * 1000L

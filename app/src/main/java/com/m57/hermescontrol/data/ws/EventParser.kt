@@ -1,6 +1,7 @@
 package com.m57.hermescontrol.data.ws
 
 import android.util.Log
+import com.m57.hermescontrol.data.model.parseMessageReactions
 import com.m57.hermescontrol.ui.chat.extractTodosFromMap
 import kotlinx.serialization.json.JsonObject
 
@@ -278,7 +279,7 @@ object EventParser {
 
             "status.update" -> {
                 val status = payload?.get("status") as? String
-                WsEvent.StatusUpdate(status, payload)
+                WsEvent.StatusUpdate(status, payload, sessionId)
             }
 
             "error" -> {
@@ -315,6 +316,28 @@ object EventParser {
                 WsEvent.SessionUpdated(payload)
             }
 
+            "session.title" -> {
+                // Payload session_id is the stored key; the envelope id (if any) is the runtime id.
+                val storedId = (payload?.get("session_id") as? String)?.trim()?.takeIf { it.isNotEmpty() }
+                val title = (payload?.get("title") as? String)?.trim()?.takeIf { it.isNotEmpty() }
+                if (storedId == null || title == null) {
+                    WsEvent.Unknown(rawJson)
+                } else {
+                    WsEvent.SessionTitle(storedId, title, (params["session_id"] as? String)?.takeIf { it.isNotBlank() })
+                }
+            }
+
+            "session.reclaimed" -> {
+                fun id(key: String) = (payload?.get(key) as? String)?.trim()?.takeIf { it.isNotEmpty() }
+                val runtimeId = id("session_id")
+                val storedId = id("stored_session_id")
+                if (runtimeId == null && storedId == null) {
+                    WsEvent.Unknown(rawJson)
+                } else {
+                    WsEvent.SessionReclaimed(runtimeId, storedId, id("reason"))
+                }
+            }
+
             "session.usage" -> {
                 WsEvent.SessionUsage(payload, sessionId)
             }
@@ -331,6 +354,20 @@ object EventParser {
             "reaction" -> {
                 val kind = payload?.get("kind") as? String ?: ""
                 WsEvent.ReactionEvent(kind)
+            }
+
+            "message.reaction" -> {
+                val rowId = (payload?.get("row_id") as? Number)?.toLong()
+                if (rowId == null) {
+                    WsEvent.Unknown(rawJson)
+                } else {
+                    WsEvent.MessageReactionUpdated(
+                        rowId = rowId,
+                        reactions = parseMessageReactions(payload["reactions"]),
+                        role = payload["role"] as? String ?: "",
+                        sessionId = sessionId,
+                    )
+                }
             }
 
             "approval.request" -> {

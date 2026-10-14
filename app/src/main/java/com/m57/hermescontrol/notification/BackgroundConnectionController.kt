@@ -51,6 +51,7 @@ class BackgroundConnectionController(
                 status = status,
                 isAutoReconnect = AuthManager.isAutoReconnect(),
                 hasActiveNetwork = NetworkMonitor.isConnected.value,
+                notifyCompletionsOptIn = AuthManager.isNotifySessionCompletions(),
             )
         }
     }
@@ -84,8 +85,16 @@ class BackgroundConnectionController(
         requestServiceStop()
     }
 
-    fun onReplyCompleted(generation: Long) {
-        val snapshot = snapshotProvider(false).copy(pendingReply = false)
+    /**
+     * A reply finished in the background. [stillPending] is true when another
+     * bot's turn is still running: the service then stays up for it instead of
+     * being retired by the first completion.
+     */
+    fun onReplyCompleted(
+        generation: Long,
+        stillPending: Boolean = false,
+    ) {
+        val snapshot = snapshotProvider(false).copy(pendingReply = stillPending)
         val decision = BackgroundConnectionPolicy.evaluate(snapshot)
 
         if (decision.shouldHoldService) {
@@ -96,6 +105,17 @@ class BackgroundConnectionController(
         } else {
             requestServiceComplete(generation)
         }
+    }
+
+    /** The persistent opt-in was turned off while backgrounded (e.g. from the notification action). */
+    fun onKeepConnectedDisabled() {
+        val snapshot = snapshotProvider(false)
+        if (!snapshot.appInForeground) {
+            releaseLease()
+        }
+        // Force a re-post if the service stays up (pending reply) so the action button disappears.
+        currentNotificationState = BackgroundNotificationState.None
+        reconcileState()
     }
 
     fun reconcileState() {
