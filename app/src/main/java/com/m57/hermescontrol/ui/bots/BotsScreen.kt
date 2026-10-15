@@ -78,7 +78,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -147,8 +146,6 @@ fun BotsScreen(
     var now by remember { mutableDoubleStateOf(nowSeconds()) }
     // On a phone the chat opens full screen; replies that arrived there count as read on return.
     var returningFrom by rememberSaveable { mutableStateOf<String?>(null) }
-    val context = LocalContext.current
-    remember { BotSeenStore.init(context) }
 
     // Horizontal drags on this screen belong to its content; the drawer opens from the menu button.
     DisableDrawerGestures()

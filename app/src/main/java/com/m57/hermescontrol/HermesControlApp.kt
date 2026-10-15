@@ -16,6 +16,7 @@ import com.m57.hermescontrol.data.remote.OkHttpProvider
 import com.m57.hermescontrol.notification.CronInboxSync
 import com.m57.hermescontrol.notification.TurnCorrelationTracker
 import com.m57.hermescontrol.ui.analytics.AnalyticsPreloader
+import com.m57.hermescontrol.ui.bots.BotSeenStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -30,6 +31,7 @@ class HermesControlApp :
     override fun onCreate() {
         super.onCreate()
         AuthManager.init(this)
+        BotSeenStore.init(this)
         NetworkMonitor.init(this)
         SessionListCacheStore.init(this)
         // Reply-notification turn boundaries survive process death (armed before
