@@ -1867,4 +1867,6 @@
     <string name="account_connectors_reconnect">Reconnect</string>
     <string name="account_connectors_no_tools">No tools available</string>
     <string name="account_connectors_policy_locked">Read-only policy restrictions</string>
+    <string name="notif_cron_channel">Scheduled updates</string>
+    <string name="notif_cron_title">Scheduled update · %1$s</string>
 </resources>

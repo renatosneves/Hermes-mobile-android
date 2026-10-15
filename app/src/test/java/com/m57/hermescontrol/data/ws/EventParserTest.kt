@@ -30,6 +30,29 @@ private fun createJsonRpcResponse(
     )
 
 class EventParserTest {
+    @Test
+    fun cronStartDoesNotStartAnInteractiveTurn() {
+        val event =
+            EventParser.parseParams(
+                mapOf("type" to "message.start", "session_id" to "builder", "payload" to mapOf("source" to "cron")),
+            )
+        assertTrue(event is WsEvent.Unknown)
+    }
+
+    @Test
+    fun cronReplayKeepsTheSameCompletionIdentity() {
+        val params =
+            mapOf(
+                "type" to "message.complete",
+                "session_id" to "builder",
+                "payload" to mapOf("source" to "cron", "message_id" to "delivery-1", "text" to "Scheduled update"),
+            )
+        val first = EventParser.parseParams(params) as WsEvent.MessageComplete
+        val retry = EventParser.parseParams(params) as WsEvent.MessageComplete
+        assertEquals("delivery-1", first.completionId)
+        assertEquals(first.completionId, retry.completionId)
+    }
+
     @Before
     fun setUp() {
         mockkStatic(android.util.Log::class)

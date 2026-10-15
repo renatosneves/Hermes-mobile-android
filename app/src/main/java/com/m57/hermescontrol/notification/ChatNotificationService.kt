@@ -152,6 +152,7 @@ class ChatNotificationService : Service() {
                             if (!isAppInForeground.get()) {
                                 when (event) {
                                     is WsEvent.MessageComplete -> {
+                                        if (event.rawPayload?.get("source") == "cron") return@launch
                                         val targetSessionId =
                                             event.storedSessionId
                                                 ?: ActiveSessionHolder.resolveStoredSessionId(event.sessionId)

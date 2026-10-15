@@ -22,6 +22,7 @@ import com.m57.hermescontrol.data.model.CreateTaskBody
 import com.m57.hermescontrol.data.model.CreateWebhookRequest
 import com.m57.hermescontrol.data.model.CredentialPoolResponse
 import com.m57.hermescontrol.data.model.CronBlueprintListResponse
+import com.m57.hermescontrol.data.model.CronInboxResponse
 import com.m57.hermescontrol.data.model.CronJob
 import com.m57.hermescontrol.data.model.CuratorResponse
 import com.m57.hermescontrol.data.model.DebugShareResponse
@@ -198,6 +199,12 @@ interface HermesApiService : KanbanApiService {
         @Query("limit") limit: Int = 20,
         @Query("offset") offset: Int = 0,
     ): Response<SessionSearchResponse>
+
+    @GET("api/cron/inbox")
+    suspend fun getCronInbox(
+        @Query("after") after: Long = 0,
+        @Query("limit") limit: Int = 100,
+    ): Response<CronInboxResponse>
 
     @GET("api/sessions/{id}/messages")
     suspend fun getSessionMessages(

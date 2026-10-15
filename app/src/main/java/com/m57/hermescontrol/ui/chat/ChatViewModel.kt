@@ -39,6 +39,7 @@ import com.m57.hermescontrol.data.ws.WsEvent
 import com.m57.hermescontrol.data.ws.WsMethods
 import com.m57.hermescontrol.data.ws.toAny
 import com.m57.hermescontrol.data.ws.toJsonElement
+import com.m57.hermescontrol.notification.CronInboxSync
 import com.m57.hermescontrol.notification.ReplyNotificationTracker
 import com.m57.hermescontrol.notification.captureTurnBoundary
 import com.m57.hermescontrol.notification.correlationScopeId
@@ -518,6 +519,7 @@ class ChatViewModel(
     private val pendingSendReservations = mutableListOf<PendingSendReservation>()
     private var pendingSendReservationJob: Job? = null
     private var queueDrainJob: Job? = null
+    private var pendingCronHistoryRefresh = false
     private var mainTurnBusy = false
         set(busy) {
             field = busy
@@ -790,6 +792,13 @@ class ChatViewModel(
     var initialSessionId: String? = null
 
     init {
+        viewModelScope.launch {
+            CronInboxSync.changedSessions.collect { sessionId ->
+                if (isCurrentSession(sessionId)) {
+                    if (mainTurnBusy) pendingCronHistoryRefresh = true else refreshCurrentSession()
+                }
+            }
+        }
         refreshSettings()
         refreshMaxToolCallsPerTurn()
 
@@ -1001,6 +1010,12 @@ class ChatViewModel(
     }
 
     private fun handleWsEvent(event: WsEvent) {
+        if (event is WsEvent.MessageComplete && event.rawPayload?.get("source") == "cron") {
+            if (event.sessionId != null && isCurrentSession(event.sessionId)) {
+                if (mainTurnBusy) pendingCronHistoryRefresh = true else refreshCurrentSession()
+            }
+            return
+        }
         // Filter explicitly scoped terminal/start events before buffer resets and reduction.
         // Legacy unscoped failures are ambiguous across sessions, so fail closed: gateways
         // must include session_id for failed replies to be surfaced by this client.
@@ -1110,6 +1125,10 @@ class ChatViewModel(
             is WsEvent.MessageComplete -> {
                 if (isCurrentSession(event.sessionId)) {
                     mainTurnBusy = false
+                    if (pendingCronHistoryRefresh) {
+                        pendingCronHistoryRefresh = false
+                        refreshCurrentSession()
+                    }
                     lastMainCompletionAt = System.currentTimeMillis()
                     retireReceiptForPersistedTurn(parsePersistedTurn(event.rawPayload))
                     refreshSendReceipts()
@@ -1121,6 +1140,10 @@ class ChatViewModel(
             is WsEvent.MessageDone -> {
                 if (isCurrentSession(event.sessionId)) {
                     mainTurnBusy = false
+                    if (pendingCronHistoryRefresh) {
+                        pendingCronHistoryRefresh = false
+                        refreshCurrentSession()
+                    }
                     lastMainCompletionAt = System.currentTimeMillis()
                     refreshSendReceipts()
                 }

@@ -335,6 +335,7 @@ object HermesWsClient {
                     }
 
                     is WsEvent.MessageComplete -> {
+                        if (event.rawPayload?.get("source") == "cron") return@collect
                         pendingReply = false
                         disconnectIfIdleInBackground()
                     }

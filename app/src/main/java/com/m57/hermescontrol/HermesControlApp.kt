@@ -13,6 +13,7 @@ import com.m57.hermescontrol.data.local.AuthManager
 import com.m57.hermescontrol.data.local.SessionListCacheStore
 import com.m57.hermescontrol.data.remote.NetworkMonitor
 import com.m57.hermescontrol.data.remote.OkHttpProvider
+import com.m57.hermescontrol.notification.CronInboxSync
 import com.m57.hermescontrol.notification.TurnCorrelationTracker
 import com.m57.hermescontrol.ui.analytics.AnalyticsPreloader
 import kotlinx.coroutines.CoroutineScope
@@ -36,6 +37,7 @@ class HermesControlApp :
         TurnCorrelationTracker.attach(this)
         appScope.launch {
             AuthManager.initializationState.first { it == AuthManager.InitializationState.Ready }
+            CronInboxSync.start(this@HermesControlApp)
             // Issue #537 follow-up (A): preload analytics in the background after launch
             // so the tab renders instantly when opened (the usage endpoint is slow on a
             // cold backend). Fire-and-forget; never blocks UI startup.

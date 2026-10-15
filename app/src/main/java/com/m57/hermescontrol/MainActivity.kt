@@ -21,6 +21,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.m57.hermescontrol.data.local.AuthManager
 import com.m57.hermescontrol.data.update.UpdateNoticeManager
 import com.m57.hermescontrol.data.ws.HermesWsClient
+import com.m57.hermescontrol.notification.CronInboxSync
 import com.m57.hermescontrol.notification.NotificationHelper
 import com.m57.hermescontrol.notification.NotificationReplyReceiver
 import com.m57.hermescontrol.theme.HermesControlTheme
@@ -164,6 +165,26 @@ class MainActivity : ComponentActivity() {
         if (intent?.action != ACTION_OPEN_CHAT_FROM_NOTIFICATION) return
         val sessionId = intent.getStringExtra(NotificationReplyReceiver.EXTRA_SESSION_ID)
         intent.removeExtra(NotificationReplyReceiver.EXTRA_SESSION_ID)
-        sessionId?.takeIf { it.isNotBlank() }?.let(NavigationController::openChatSessionFromNotification)
+        val server = intent.getStringExtra(CronInboxSync.EXTRA_SERVER)
+        val profile = intent.getStringExtra(CronInboxSync.EXTRA_PROFILE)
+        intent.removeExtra(CronInboxSync.EXTRA_SERVER)
+        intent.removeExtra(CronInboxSync.EXTRA_PROFILE)
+        if (server != null) {
+            lifecycleScope.launch {
+                AuthManager.initializationState.first { it == AuthManager.InitializationState.Ready }
+                if (server !=
+                    AuthManager.contextFlow.value
+                        ?.baseUrl
+                        ?.trimEnd('/')
+                ) {
+                    return@launch
+                }
+                if (profile == null || !profile.matches(Regex("[a-zA-Z0-9_-]{1,80}"))) return@launch
+                AuthManager.setActiveProfileId(profile)
+                sessionId?.takeIf { it.isNotBlank() }?.let(NavigationController::openChatSessionFromNotification)
+            }
+        } else {
+            sessionId?.takeIf { it.isNotBlank() }?.let(NavigationController::openChatSessionFromNotification)
+        }
     }
 }
