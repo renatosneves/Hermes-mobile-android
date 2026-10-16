@@ -14,7 +14,7 @@ jobs:
   beta-apk:
     if: github.head_ref == 'fix/beta48-cron-inbox'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -26,6 +26,15 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
         with:
           validate-wrappers: true
+      - name: Test scheduled-delivery regressions
+        run: |
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest \
+            --tests 'com.m57.hermescontrol.notification.CronInboxPersistenceTest' \
+            --tests 'com.m57.hermescontrol.notification.CronInboxSyncTest' \
+            --tests 'com.m57.hermescontrol.notification.NewMessageDeciderTest' \
+            --tests 'com.m57.hermescontrol.data.ws.EventParserTest' \
+            --tests 'com.m57.hermescontrol.ui.chat.CronFollowUpsTest'
       - name: Build optimized beta 48 update
         run: |
           chmod +x gradlew

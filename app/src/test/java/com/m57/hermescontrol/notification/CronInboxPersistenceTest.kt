@@ -55,7 +55,7 @@ class CronInboxPersistenceTest {
         every { prefs.getString(any(), any()) } answers { values[firstArg()] as? String ?: secondArg() }
         every { prefs.getStringSet(any(), any()) } answers {
             @Suppress("UNCHECKED_CAST")
-            (values[firstArg()] as? Set<String>) ?: secondArg()
+            (values[firstArg()] as? Set<String>).orEmpty().toMutableSet()
         }
         every { prefs.edit() } returns editor
         every { editor.putLong(any(), any()) } answers {
