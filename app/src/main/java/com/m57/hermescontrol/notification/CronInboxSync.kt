@@ -34,12 +34,12 @@ internal fun cronInboxNeedsRestart(
 
 internal fun cronInboxNotificationId(
     server: String,
-    deliveryId: String,
+    profile: String,
 ): Int =
     (
         MessageDigest
             .getInstance("SHA-256")
-            .digest("$server|$deliveryId".toByteArray())
+            .digest("$server|$profile".toByteArray())
             .take(4)
             .fold(0) { result, byte -> (result shl 8) or (byte.toInt() and 255) } and 0x3fffffff
     ) + 100
@@ -117,6 +117,7 @@ object CronInboxSync {
             var epoch = prefs.getString("$key.epoch", null)
             val cutoff = if (epoch == null) System.currentTimeMillis() / 1000 - 86400 else null
             val delivered = prefs.getStringSet("$key.delivered", emptySet()).orEmpty().toMutableSet()
+            val posted = prefs.getStringSet("$key.posted", emptySet()).orEmpty().toMutableSet()
             for (pageNumber in 0 until 10) {
                 val response = ApiClient.hermesApi.getCronInbox(cursor)
                 if (!response.isSuccessful) return@withLock
@@ -140,7 +141,14 @@ object CronInboxSync {
                     )
                     if (cutoff != null && delivery.created < cutoff) continue
                     changes.emit(delivery.session_id)
-                    if (AuthManager.isNotifyNewBotMessages() && !post(context, server, delivery)) return@withLock
+                    val receipt = "${delivery.profile}|${delivery.id}"
+                    if (AuthManager.isNotifyNewBotMessages() && receipt !in posted) {
+                        if (!post(context, server, delivery)) return@withLock
+                        posted.add(receipt)
+                        // Persist the posted identity before advancing the page cursor. Restarting
+                        // midway through a page must not repeat already handed-off notifications.
+                        check(prefs.edit().putStringSet("$key.posted", posted.toList().takeLast(2000).toSet()).commit())
+                    }
                 }
                 // Oldest identities may be pruned: the legacy checker only reads its newest three rows.
                 val retained = delivered.toList().takeLast(2000).toSet()
@@ -178,7 +186,9 @@ object CronInboxSync {
                 NotificationManager.IMPORTANCE_HIGH,
             ),
         )
-        val id = cronInboxNotificationId(server, delivery.id)
+        // One card per bot bounds Android's active-notification count. Every receipt
+        // remains in the durable chat; a newer alert replaces that bot's notification.
+        val id = cronInboxNotificationId(server, delivery.profile)
         val intent =
             Intent(context, MainActivity::class.java).apply {
                 action = MainActivity.ACTION_OPEN_CHAT_FROM_NOTIFICATION
@@ -202,7 +212,7 @@ object CronInboxSync {
                 .setContentText(delivery.text.take(200))
                 .setStyle(NotificationCompat.BigTextStyle().bigText(delivery.text.take(2000)))
                 .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-                .setOnlyAlertOnce(true)
+                .setOnlyAlertOnce(false)
                 .setAutoCancel(true)
                 .setContentIntent(pending)
                 .build()

@@ -9,10 +9,10 @@ import org.junit.Test
 class CronInboxSyncTest {
     @Test
     fun retryReplacesTheSameNotificationAndServersRemainSeparate() {
-        val id = cronInboxNotificationId("http://gateway:18788", "receipt-1")
-        assertEquals(id, cronInboxNotificationId("http://gateway:18788", "receipt-1"))
-        assertNotEquals(id, cronInboxNotificationId("http://other:18788", "receipt-1"))
-        assertNotEquals(id, cronInboxNotificationId("http://gateway:18788", "receipt-2"))
+        val id = cronInboxNotificationId("http://gateway:18788", "builder")
+        assertEquals(id, cronInboxNotificationId("http://gateway:18788", "builder"))
+        assertNotEquals(id, cronInboxNotificationId("http://other:18788", "builder"))
+        assertNotEquals(id, cronInboxNotificationId("http://gateway:18788", "research"))
         assertTrue(id > 0)
     }
 
