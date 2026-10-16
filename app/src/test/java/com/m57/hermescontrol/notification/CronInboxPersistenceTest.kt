@@ -46,8 +46,9 @@ class CronInboxPersistenceTest {
 
     @Before
     fun setup() {
-        mockkObject(AuthManager, ApiClient)
+        mockkObject(AuthManager, ApiClient, NotificationHelper)
         every { AuthManager.contextFlow } returns connection
+        every { NotificationHelper.isAppInForeground() } returns false
         every { AuthManager.isNotifyNewBotMessages() } returns false
         every { ApiClient.hermesApi } returns api
         every { context.getSharedPreferences(any(), any()) } returns prefs
@@ -159,5 +160,16 @@ class CronInboxPersistenceTest {
             coVerify(exactly = 1) { api.getCronInbox(999, any()) }
             coVerify(exactly = 1) { api.getCronInbox(0, any()) }
             assertEquals(1L, values["$key.cursor"])
+        }
+
+    @Test
+    fun foregroundCatchUpRefreshesWithoutBackgroundNotification() =
+        runBlocking {
+            every { AuthManager.isNotifyNewBotMessages() } returns true
+            every { NotificationHelper.isAppInForeground() } returns true
+            // Foreground updates must not call the unstubbed NotificationManager.
+            CronInboxSync.syncOnce(context)
+            assertEquals(1L, values.values.filterIsInstance<Long>().single())
+            assertTrue(CronInboxSync.wasDelivered(context, "builder", "builder-chat", 12, delivery.created))
         }
 }

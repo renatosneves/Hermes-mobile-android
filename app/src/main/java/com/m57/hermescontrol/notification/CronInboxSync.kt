@@ -142,7 +142,9 @@ object CronInboxSync {
                     if (cutoff != null && delivery.created < cutoff) continue
                     changes.emit(delivery.session_id)
                     val receipt = "${delivery.profile}|${delivery.id}"
-                    if (AuthManager.isNotifyNewBotMessages() && receipt !in posted) {
+                    val shouldNotify =
+                        AuthManager.isNotifyNewBotMessages() && !NotificationHelper.isAppInForeground()
+                    if (shouldNotify && receipt !in posted) {
                         if (!post(context, server, delivery)) return@withLock
                         posted.add(receipt)
                         // Persist the posted identity before advancing the page cursor. Restarting
