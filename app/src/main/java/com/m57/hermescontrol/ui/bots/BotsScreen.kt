@@ -219,14 +219,6 @@ fun BotsScreen(
     var showCreateGroupDialog by remember { mutableStateOf(false) }
     var now by remember { mutableDoubleStateOf(nowSeconds()) }
     val context = LocalContext.current
-    remember {
-        BotSeenStore.init(context)
-        BotPinStore.init(context)
-        BotsThemeStore.init(context)
-        BotChatStore.init(context)
-        BotsSizeStore.init(context)
-        GroupPictureStore.init(context)
-    }
 
     // Horizontal drags on this screen belong to its content; the drawer opens from the menu button.
     DisableDrawerGestures()

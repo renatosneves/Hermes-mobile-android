@@ -21,6 +21,12 @@ import com.m57.hermescontrol.notification.CronInboxSync
 import com.m57.hermescontrol.notification.NewMessageCheckJob
 import com.m57.hermescontrol.notification.TurnCorrelationTracker
 import com.m57.hermescontrol.ui.analytics.AnalyticsPreloader
+import com.m57.hermescontrol.ui.bots.BotChatStore
+import com.m57.hermescontrol.ui.bots.BotPinStore
+import com.m57.hermescontrol.ui.bots.BotSeenStore
+import com.m57.hermescontrol.ui.bots.BotsSizeStore
+import com.m57.hermescontrol.ui.bots.BotsThemeStore
+import com.m57.hermescontrol.ui.bots.GroupPictureStore
 import com.m57.hermescontrol.ui.chat.cleanStalePastedImages
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +49,12 @@ class HermesControlApp :
         }
         ClientCertificates.initialize(this)
         AuthManager.init(this)
+        BotSeenStore.init(this)
+        BotPinStore.init(this)
+        BotsThemeStore.init(this)
+        BotChatStore.init(this)
+        BotsSizeStore.init(this)
+        GroupPictureStore.init(this)
         NetworkMonitor.init(this)
         SessionListCacheStore.init(this)
         // Reply-notification turn boundaries survive process death (armed before

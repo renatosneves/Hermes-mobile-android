@@ -216,6 +216,8 @@ fun ChatScreen(
     val displayedMessages = transcriptState.messages
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
+    val approvedDecisionText = stringResource(R.string.chat_decision_approved)
+    val rejectedDecisionText = stringResource(R.string.chat_decision_rejected)
 
     DisposableEffect(lifecycleOwner) {
         val observer =
@@ -899,13 +901,7 @@ fun ChatScreen(
                                         viewModel.sendMessage(
                                             buildReplyText(
                                                 ReplyTarget(fromBot = true, excerpt = replyExcerpt(message.content)),
-                                                context.getString(
-                                                    if (approve) {
-                                                        R.string.chat_decision_approved
-                                                    } else {
-                                                        R.string.chat_decision_rejected
-                                                    },
-                                                ),
+                                                if (approve) approvedDecisionText else rejectedDecisionText,
                                             ),
                                         )
                                     // Only a decision that actually went to the bot earns its chip.
