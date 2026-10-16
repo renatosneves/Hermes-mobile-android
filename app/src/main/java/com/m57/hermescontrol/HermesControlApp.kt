@@ -11,10 +11,23 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
 import com.m57.hermescontrol.data.local.AuthManager
 import com.m57.hermescontrol.data.local.SessionListCacheStore
+import com.m57.hermescontrol.data.remote.CertificateImageInterceptor
+import com.m57.hermescontrol.data.remote.ClientCertificates
 import com.m57.hermescontrol.data.remote.NetworkMonitor
 import com.m57.hermescontrol.data.remote.OkHttpProvider
+import com.m57.hermescontrol.diagnostics.ChatTrace
+import com.m57.hermescontrol.diagnostics.FreezeReporter
+import com.m57.hermescontrol.notification.CronInboxSync
+import com.m57.hermescontrol.notification.NewMessageCheckJob
 import com.m57.hermescontrol.notification.TurnCorrelationTracker
 import com.m57.hermescontrol.ui.analytics.AnalyticsPreloader
+import com.m57.hermescontrol.ui.bots.BotChatStore
+import com.m57.hermescontrol.ui.bots.BotPinStore
+import com.m57.hermescontrol.ui.bots.BotSeenStore
+import com.m57.hermescontrol.ui.bots.BotsSizeStore
+import com.m57.hermescontrol.ui.bots.BotsThemeStore
+import com.m57.hermescontrol.ui.bots.GroupPictureStore
+import com.m57.hermescontrol.ui.chat.cleanStalePastedImages
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -28,12 +41,30 @@ class HermesControlApp :
 
     override fun onCreate() {
         super.onCreate()
+        FreezeReporter.init(this)
+        ChatTrace.init(this)
+        val startupTimeMs = System.currentTimeMillis()
+        appScope.launch(Dispatchers.IO) {
+            cleanStalePastedImages(cacheDir, startupTimeMs)
+        }
+        ClientCertificates.initialize(this)
         AuthManager.init(this)
+        BotSeenStore.init(this)
+        BotPinStore.init(this)
+        BotsThemeStore.init(this)
+        BotChatStore.init(this)
+        BotsSizeStore.init(this)
+        GroupPictureStore.init(this)
         NetworkMonitor.init(this)
         SessionListCacheStore.init(this)
         // Reply-notification turn boundaries survive process death (armed before
         // each mobile prompt, consumed by the matching completion).
         TurnCorrelationTracker.attach(this)
+        appScope.launch {
+            AuthManager.initializationState.first { it == AuthManager.InitializationState.Ready }
+            NewMessageCheckJob.sync(this@HermesControlApp)
+            CronInboxSync.start(this@HermesControlApp)
+        }
         appScope.launch {
             AuthManager.initializationState.first { it == AuthManager.InitializationState.Ready }
             // Issue #537 follow-up (A): preload analytics in the background after launch
@@ -47,6 +78,7 @@ class HermesControlApp :
         ImageLoader
             .Builder(context)
             .components {
+                add(CertificateImageInterceptor())
                 add(
                     OkHttpNetworkFetcherFactory(
                         callFactory = { OkHttpProvider.base },

@@ -264,7 +264,7 @@ fun BotAppearanceEditor(
                             Icon(
                                 Icons.Filled.Check,
                                 contentDescription = null,
-                                tint = if (swatch.luminance() > 0.5f) BotsPalette.Ink else BotsPalette.Fg,
+                                tint = if (swatch.luminance() > 0.5f) BotsPalette.OnHue else BotsPalette.Highlight,
                                 modifier = Modifier.size(18.dp),
                             )
                         }

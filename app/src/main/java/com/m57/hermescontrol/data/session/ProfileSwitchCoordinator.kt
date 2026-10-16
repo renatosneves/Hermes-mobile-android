@@ -11,6 +11,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -47,8 +49,13 @@ object ProfileSwitchCoordinator {
     private val _switched = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val switched: SharedFlow<String> = _switched.asSharedFlow()
 
+    /** Wipes the open chat: only a full [switchProfile] does this, never [focusProfile]. */
+    private val _chatReset = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val chatReset: SharedFlow<String> = _chatReset.asSharedFlow()
+
     private val _connectionSwitched = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val connectionSwitched: SharedFlow<String> = _connectionSwitched.asSharedFlow()
+    private val switchMutex = Mutex()
 
     suspend fun switchProfile(name: String): NetworkResult<Unit> {
         val result =
@@ -58,6 +65,7 @@ object ProfileSwitchCoordinator {
         if (result !is NetworkResult.Success) return result
 
         AuthManager.setActiveProfileId(name)
+        _chatReset.emit(name)
         _switched.emit(name)
         // The ticket mint inside connect() does blocking network I/O — it must
         // run off the main thread or the dial crashes with
@@ -69,6 +77,27 @@ object ProfileSwitchCoordinator {
         }
         return result
     }
+
+    /**
+     * Points the app at [name] without restarting chat, for opening a bot. Every chat call already
+     * names its profile, so the socket stays up and the open conversation isn't wiped: the chat
+     * then resumes the bot's own session in that profile. Runs synchronously so a session resume
+     * that follows straight after already carries the new profile.
+     */
+    fun focusProfile(name: String) {
+        if (AuthManager.activeProfileId.value == name) return
+        AuthManager.setActiveProfileId(name)
+        _switched.tryEmit(name)
+    }
+
+    /**
+     * Moves the server's sticky active profile to follow [focusProfile]. Best-effort: chat doesn't
+     * depend on it, only surfaces that don't pass a profile yet.
+     */
+    suspend fun syncServerProfile(name: String): NetworkResult<Unit> =
+        withContext(ioDispatcher) {
+            safeApiCall { ApiClient.hermesApi.setActiveProfile(SetActiveProfileRequest(name)) }
+        }
 
     /**
      * Switches the CONNECTION profile — which server the app talks to (e.g.
@@ -91,18 +120,29 @@ object ProfileSwitchCoordinator {
      *     blocking I/O — NetworkOnMainThreadException otherwise).
      */
     suspend fun switchConnectionProfile(profileId: String?) {
-        AuthManager.setSelectedProfileId(profileId)
-        ApiClient.rebuild()
-        _connectionSwitched.emit(profileId.orEmpty())
-        withContext(ioDispatcher) {
-            // The WS ticket mint reads the cookie jar's ACTIVE store; the
-            // selection change swaps that store asynchronously, so a dial
-            // that races it mints with the PREVIOUS server's cookie → 401 →
-            // aborted socket with no retry. Await the swap before dialing
-            // (idempotent no-op when it already landed).
-            AuthManager.syncCookieStoreForProfile(profileId)
-            HermesWsClient.disconnect()
-            HermesWsClient.connect()
+        switchMutex.withLock {
+            HermesWsClient.disconnect(clearPendingMessages = true)
+            prepareConnectionProfileUnlocked(profileId)
+            withContext(ioDispatcher) {
+                HermesWsClient.connect()
+            }
         }
+    }
+
+    /** Re-home REST/auth state without opening a socket (used by the login flow). */
+    suspend fun prepareConnectionProfile(profileId: String?) {
+        switchMutex.withLock {
+            HermesWsClient.disconnect(clearPendingMessages = true)
+            prepareConnectionProfileUnlocked(profileId)
+        }
+    }
+
+    private suspend fun prepareConnectionProfileUnlocked(profileId: String?) {
+        AuthManager.setSelectedProfileId(profileId)
+        withContext(ioDispatcher) {
+            AuthManager.syncCookieStoreForProfile(profileId)
+            ApiClient.rebuild()
+        }
+        _connectionSwitched.emit(profileId.orEmpty())
     }
 }

@@ -28,12 +28,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -43,6 +47,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
@@ -59,6 +64,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -69,8 +75,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -92,13 +99,18 @@ import com.m57.hermescontrol.data.session.ActiveSessionHolder
 import com.m57.hermescontrol.data.ws.ConnectionStatus
 import com.m57.hermescontrol.data.ws.HermesWsClient
 import com.m57.hermescontrol.notification.NotificationHelper
+import com.m57.hermescontrol.share.ShareInbox
+import com.m57.hermescontrol.theme.BotsPalette
 import com.m57.hermescontrol.theme.LocalHermesStatusColors
+import com.m57.hermescontrol.theme.LocalToybox
+import com.m57.hermescontrol.theme.toySticker
 import com.m57.hermescontrol.ui.chat.components.ChatAppUpdateSection
 import com.m57.hermescontrol.ui.chat.components.ChatConnectionBanner
 import com.m57.hermescontrol.ui.chat.components.ChatHistoryWindowBanner
 import com.m57.hermescontrol.ui.chat.components.ChatInputBar
 import com.m57.hermescontrol.ui.chat.components.ChatLifecycleEffects
 import com.m57.hermescontrol.ui.chat.components.ChatLoadingOverlay
+import com.m57.hermescontrol.ui.chat.components.ChatPaneMemory
 import com.m57.hermescontrol.ui.chat.components.ChatResumeErrorOverlay
 import com.m57.hermescontrol.ui.chat.components.ChatScrollToBottomFab
 import com.m57.hermescontrol.ui.chat.components.ChatTimelineNoPrefetchStrategy
@@ -107,6 +119,7 @@ import com.m57.hermescontrol.ui.chat.components.ConnectionSetupSheet
 import com.m57.hermescontrol.ui.chat.components.ContextDetailSheet
 import com.m57.hermescontrol.ui.chat.components.ContextUsageChip
 import com.m57.hermescontrol.ui.chat.components.MediaViewerDialog
+import com.m57.hermescontrol.ui.chat.components.PendingSendRecovery
 import com.m57.hermescontrol.ui.chat.components.ReactionHeartsOverlay
 import com.m57.hermescontrol.ui.chat.components.ReloginDialog
 import com.m57.hermescontrol.ui.chat.components.ReplyErrorCard
@@ -117,9 +130,13 @@ import com.m57.hermescontrol.ui.chat.components.SpeechRequest
 import com.m57.hermescontrol.ui.chat.components.SpeechText
 import com.m57.hermescontrol.ui.chat.components.SubagentInspectionSheet
 import com.m57.hermescontrol.ui.chat.components.TaskProgressChip
+import com.m57.hermescontrol.ui.chat.components.VoiceLiveOverlay
+import com.m57.hermescontrol.ui.chat.components.rememberChatImagePaste
 import com.m57.hermescontrol.ui.chat.components.rememberChatMediaLaunchers
 import com.m57.hermescontrol.ui.chat.components.rememberChatScrollController
 import com.m57.hermescontrol.ui.chat.components.rememberChatSpeech
+import com.m57.hermescontrol.ui.chat.components.replaceComposerDraft
+import com.m57.hermescontrol.ui.chat.components.restoreRejectedComposerDraft
 import com.m57.hermescontrol.ui.chat.components.shouldShowProgressChip
 import com.m57.hermescontrol.ui.chat.components.tailContentKey
 import com.m57.hermescontrol.ui.chat.fullbleed.FullBleedChatList
@@ -129,13 +146,18 @@ import com.m57.hermescontrol.ui.common.AutoScrollingTitleText
 import com.m57.hermescontrol.ui.common.CredentialWarningBanner
 import com.m57.hermescontrol.ui.common.HermesScaffold
 import com.m57.hermescontrol.ui.common.NavIcon
+import com.m57.hermescontrol.ui.common.TopBarIconButton
 import com.m57.hermescontrol.ui.model.components.ModelPickerDialog
 import com.m57.hermescontrol.ui.settings.SettingsViewModel
 import com.m57.hermescontrol.util.ConnectorUrlValidator
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 
 private const val SESSION_SYNC_INTERVAL_MS = 30_000L
+
+/** Desktop-parity cadence for `process.list` polling (issue #1503). */
+private const val BACKGROUND_PROCESS_POLL_MS = 5_000L
 
 internal fun acceptedSaveDestination(
     resultCode: Int,
@@ -166,6 +188,15 @@ fun ChatScreen(
     sessionId: String? = null,
     /** Replaces the chat title, e.g. with the bot header when the chat is embedded in the Bots home. */
     titleOverride: (@Composable () -> Unit)? = null,
+    /** Shows a back arrow instead of the menu, e.g. a bot chat opened from the Bots list on a phone. */
+    onBack: (() -> Unit)? = null,
+    /** Replaces the menu button, e.g. showing or hiding the bot list beside an embedded chat. */
+    navigationAction: NavIcon.Action? = null,
+    /** The bot a live voice call from this chat speaks as, and its picture (the Bots home sets these). */
+    voiceTitle: String? = null,
+    voiceImageUrl: String? = null,
+    /** Adds a "Cron jobs" shortcut as the first item of the overflow menu (the Bots home sets this). */
+    onOpenCron: (() -> Unit)? = null,
     viewModel: ChatViewModel = viewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -182,9 +213,11 @@ fun ChatScreen(
     // Snapshot-backed search state — read directly so only the scopes that
     // read its fields recompose on search changes (bar, matched bubbles).
     val searchState = viewModel.searchState
-    val displayedMessages = timelineState.historyMessages ?: state.messages
+    val displayedMessages = transcriptState.messages
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
+    val approvedDecisionText = stringResource(R.string.chat_decision_approved)
+    val rejectedDecisionText = stringResource(R.string.chat_decision_rejected)
 
     DisposableEffect(lifecycleOwner) {
         val observer =
@@ -235,6 +268,10 @@ fun ChatScreen(
     val speakingMessageId by speechController.speakingId.collectAsStateWithLifecycle()
     val dataScope by AuthManager.dataScopeFlow.collectAsStateWithLifecycle()
     val activeSessionId by ActiveSessionHolder.activeSessionId.collectAsStateWithLifecycle()
+    val reactionsStore = remember(context) { MessageReactionsStore.from(context) }
+    val reactions by reactionsStore.reactions.collectAsStateWithLifecycle()
+    val likeSessionId = activeSessionId.orEmpty()
+    var replyTo by remember(activeSessionId) { mutableStateOf<ReplyTarget?>(null) }
     val listState = rememberLazyListState(prefetchStrategy = ChatTimelineNoPrefetchStrategy)
     val scrollScope = rememberCoroutineScope()
     val scrollController = rememberChatScrollController(listState, scrollScope)
@@ -339,20 +376,54 @@ fun ChatScreen(
             !timelineState.isHistorical && scrollController.showFab(displayedMessages.isNotEmpty())
         }
     }
-    var inputFieldValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(TextFieldValue(""))
+    val inputState = rememberTextFieldState()
+
+    fun setDraft(text: String) =
+        inputState.edit {
+            replace(0, length, text)
+            selection = TextRange(text.length)
+        }
+    // Each chat keeps its own unsent text: opening another bot swaps it rather than carrying
+    // it over, and coming back brings it back.
+    var draftSessionId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(state.currentSessionId) {
+        val next = state.currentSessionId ?: return@LaunchedEffect
+        val previous = draftSessionId
+        if (previous == next) return@LaunchedEffect
+        previous?.let { ChatPaneMemory.saveDraft(it, inputState.text.toString()) }
+        draftSessionId = next
+        // First showing with text already in the box (e.g. after a fold): keep that text.
+        if (previous != null || inputState.text.isEmpty()) setDraft(ChatPaneMemory.draft(next))
+    }
+    DisposableEffect(Unit) {
+        onDispose { draftSessionId?.let { ChatPaneMemory.saveDraft(it, inputState.text.toString()) } }
+    }
+    // Shared from another app and sent here from the bot list: fill the composer, don't send.
+    val shareArmed by ShareInbox.armed.collectAsStateWithLifecycle()
+    LaunchedEffect(viewModel, shareArmed, draftSessionId) {
+        if (!shareArmed || draftSessionId == null) return@LaunchedEffect
+        // Opening the bot switches the chat in this same frame: wait for that, so the shared
+        // text lands in the new bot's composer, not the one being left.
+        yield()
+        yield()
+        if (viewModel.uiState.value.currentSessionId != draftSessionId) return@LaunchedEffect
+        val shared = ShareInbox.take() ?: return@LaunchedEffect
+        if (shared.text.isNotEmpty()) {
+            setDraft(listOf(inputState.text.toString(), shared.text).filter { it.isNotBlank() }.joinToString("\n"))
+        }
+        viewModel.addAttachments(shared.attachments)
     }
 
     LaunchedEffect(state.pendingPrefillText) {
         val prefill = state.pendingPrefillText
         if (prefill != null) {
-            inputFieldValue = ChatInputPolicy.commandFieldValue(prefill)
+            inputState.replaceComposerDraft(prefill)
             viewModel.consumePendingPrefill()
         }
     }
     LaunchedEffect(state.composerTextToRestore) {
         state.composerTextToRestore?.let { text ->
-            inputFieldValue = ChatInputPolicy.restoreRejectedText(text, inputFieldValue)
+            inputState.restoreRejectedComposerDraft(text)
             viewModel.consumeComposerTextRestore()
         }
     }
@@ -363,8 +434,22 @@ fun ChatScreen(
             viewModel.hydrateSubagents()
         }
     }
+    // Issue #1503: the gateway has no push event for background process start/exit,
+    // so poll process.list (desktop uses 5s) while the chat is on screen.
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                viewModel.refreshBackgroundProcesses()
+                delay(BACKGROUND_PROCESS_POLL_MS)
+            }
+        }
+    }
     var viewingImage by rememberSaveable { mutableStateOf<ImageViewerModel?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val imagePaste =
+        rememberChatImagePaste(viewModel) { message ->
+            scrollScope.launch { snackbarHostState.showSnackbar(message) }
+        }
     val launchExternalActivity: (() -> Unit) -> Unit = { launch ->
         ExternalActivityLifecycleGuard.launchExternalActivity(
             acquireConnectionLease = HermesWsClient::acquireExternalActivityConnectionLease,
@@ -412,8 +497,7 @@ fun ChatScreen(
 
     val mediaLaunchers =
         rememberChatMediaLaunchers(
-            inputFieldValue = inputFieldValue,
-            onInputFieldValueChange = { inputFieldValue = it },
+            inputState = inputState,
             onAddAttachment = { uri, name, mimeType, size ->
                 viewModel.addAttachment(uri, name, mimeType, size)
             },
@@ -468,6 +552,10 @@ fun ChatScreen(
         isOverlayActive = !isChatContentReadable,
     )
 
+    val voiceCall by VoiceLiveCalls.active.collectAsStateWithLifecycle()
+    val ownCall = voiceCall?.takeIf { it.owner === viewModel }
+    ownCall?.takeIf { !it.minimised }?.let { VoiceLiveOverlay(it) }
+
     HermesScaffold(
         modifier = modifier,
         pinTopBar = true,
@@ -516,9 +604,9 @@ fun ChatScreen(
                 }
             }
         },
-        navigationIcon = onOpenDrawer?.let { NavIcon.Menu(it) },
+        navigationIcon = onBack?.let { NavIcon.Back(it) } ?: navigationAction ?: onOpenDrawer?.let { NavIcon.Menu(it) },
         snackbarHost = {
-            SnackbarHost(snackbarHostState) { data ->
+            SnackbarHost(snackbarHostState, modifier = Modifier.imePadding()) { data ->
                 val statusColors = LocalHermesStatusColors.current
                 val isDownloadComplete = data.visuals.message.startsWith("Saved ")
                 Snackbar(
@@ -531,7 +619,25 @@ fun ChatScreen(
             }
         },
         actions = {
-            IconButton(onClick = { viewModel.createNewSession() }) {
+            TopBarIconButton(
+                onClick = {
+                    VoiceLiveCalls.open(
+                        context = context,
+                        owner = viewModel,
+                        title = voiceTitle ?: state.chatTitle.ifBlank { "Hermes" },
+                        imageUrl = voiceImageUrl,
+                    )
+                },
+                modifier = Modifier.testTag("chat_voice_live_button"),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.GraphicEq,
+                    contentDescription = stringResource(R.string.voice_live_open),
+                    // A call tucked away to answer in the chat: the button takes you back to it.
+                    tint = if (ownCall != null) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                )
+            }
+            TopBarIconButton(onClick = { viewModel.createNewSession(byUser = true) }) {
                 Icon(
                     imageVector = Icons.Filled.Add,
                     contentDescription = stringResource(R.string.content_desc_new_chat),
@@ -541,7 +647,7 @@ fun ChatScreen(
             // Session actions overflow menu (issue #1091)
             var showSessionMenu by remember { mutableStateOf(false) }
             Box {
-                IconButton(
+                TopBarIconButton(
                     onClick = {
                         settingsViewModel.refreshKeepConnectedInBackground()
                         showSessionMenu = true
@@ -557,6 +663,22 @@ fun ChatScreen(
                     expanded = showSessionMenu,
                     onDismissRequest = { showSessionMenu = false },
                 ) {
+                    if (onOpenCron != null) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.bots_action_cron)) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Filled.Schedule,
+                                    contentDescription = null,
+                                )
+                            },
+                            onClick = {
+                                showSessionMenu = false
+                                onOpenCron()
+                            },
+                            modifier = Modifier.testTag("chat_menu_cron"),
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.chat_action_timeline)) },
                         leadingIcon = {
@@ -639,11 +761,12 @@ fun ChatScreen(
             // Issue #942: compact glanceable progress strip while work is active.
             // Bound to the same hydrated todos / subagentIndicators state.
             // Auto-hides when all todos complete/cancel and no subagent is running.
-            val workActive = shouldShowProgressChip(state.todos, state.subagentIndicators)
+            val workActive = shouldShowProgressChip(state.todos, state.subagentIndicators, state.backgroundProcesses)
             TaskProgressChip(
                 visible = workActive,
                 todos = state.todos,
                 indicators = state.subagentIndicators,
+                processes = state.backgroundProcesses,
                 onClick = {
                     showSubagentInspectionSheet = true
                     scrollController.resumeFollowing()
@@ -738,76 +861,107 @@ fun ChatScreen(
 
                 // Full-bleed chat renderer (issue #866) — the single chat
                 // surface since the bubble renderer was removed.
-                FullBleedChatList(
-                    transcript =
-                        transcriptState.copy(
-                            savingAttachmentPath = pendingSavePath ?: transcriptState.savingAttachmentPath,
-                            speakingMessageId = speakingMessageId,
-                        ),
-                    actions =
-                        TranscriptActions(
-                            onLoadOlder = viewModel::loadOlderMessages,
-                            onOpenAttachment = viewModel::openAttachment,
-                            onSaveAttachment = onSaveAttachment,
-                            onImageClick = { viewingImage = it },
-                            onRespondApproval = viewModel::respondToApproval,
-                            onRespondClarify = viewModel::respondToClarify,
-                            onRespondClarifyBatch = viewModel::respondToClarifyBatch,
-                            onDismissClarify = viewModel::dismissClarify,
-                            onRespondVaultUnlock = viewModel::respondToVaultUnlock,
-                            onDismissVaultUnlock = viewModel::dismissVaultUnlock,
-                            onRespondVaultSaveLogin = viewModel::respondToVaultSaveLogin,
-                            onDismissVaultSaveLogin = viewModel::dismissVaultSaveLogin,
-                            onRespondVaultCode = viewModel::respondToVaultCode,
-                            onDismissVaultCode = viewModel::dismissVaultCode,
-                            onToggleSpeak = { message ->
-                                val scopeKey = "${dataScope?.inMemoryKey(localKey = activeSessionId ?: "none")}"
-                                speechController.toggle(
-                                    SpeechRequest(
-                                        scopeKey = scopeKey,
-                                        messageId = message.id,
-                                        text = SpeechText.stripMarkdownForSpeech(message.content),
-                                    ),
-                                )
+                // While a live voice call covers the chat, don't render it: a busy bot's
+                // stream of tool cards has nothing to show under the call screen.
+                if (ownCall == null || ownCall.minimised) {
+                    FullBleedChatList(
+                        transcript =
+                            transcriptState.copy(
+                                savingAttachmentPath = pendingSavePath ?: transcriptState.savingAttachmentPath,
+                                speakingMessageId = speakingMessageId,
+                            ),
+                        actions =
+                            TranscriptActions(
+                                onLoadOlder = viewModel::loadOlderMessages,
+                                onOpenAttachment = viewModel::openAttachment,
+                                onSaveAttachment = onSaveAttachment,
+                                onImageClick = { viewingImage = it },
+                                onRespondApproval = viewModel::respondToApproval,
+                                onRespondClarify = viewModel::respondToClarify,
+                                onRespondClarifyBatch = viewModel::respondToClarifyBatch,
+                                onDismissClarify = viewModel::dismissClarify,
+                                onRespondVaultUnlock = viewModel::respondToVaultUnlock,
+                                onDismissVaultUnlock = viewModel::dismissVaultUnlock,
+                                onRespondVaultSaveLogin = viewModel::respondToVaultSaveLogin,
+                                onDismissVaultSaveLogin = viewModel::dismissVaultSaveLogin,
+                                onRespondVaultCode = viewModel::respondToVaultCode,
+                                onDismissVaultCode = viewModel::dismissVaultCode,
+                                onReply = { message ->
+                                    replyTo =
+                                        ReplyTarget(
+                                            fromBot = message.role == MessageRole.ASSISTANT,
+                                            excerpt = replyExcerpt(message.content),
+                                        )
+                                },
+                                onReact = { message, emoji ->
+                                    reactionsStore.set(likeKey(likeSessionId, message), emoji)
+                                },
+                                onDecision = { message, approve ->
+                                    val sent =
+                                        viewModel.sendMessage(
+                                            buildReplyText(
+                                                ReplyTarget(fromBot = true, excerpt = replyExcerpt(message.content)),
+                                                if (approve) approvedDecisionText else rejectedDecisionText,
+                                            ),
+                                        )
+                                    // Only a decision that actually went to the bot earns its chip.
+                                    if (sent) {
+                                        val decision =
+                                            if (approve) MessageReactionsStore.APPROVE else MessageReactionsStore.REJECT
+                                        reactionsStore.set(likeKey(likeSessionId, message), decision)
+                                    }
+                                },
+                                onToggleSpeak = { message ->
+                                    val scopeKey = "${dataScope?.inMemoryKey(localKey = activeSessionId ?: "none")}"
+                                    speechController.toggle(
+                                        SpeechRequest(
+                                            scopeKey = scopeKey,
+                                            messageId = message.id,
+                                            text = SpeechText.stripMarkdownForSpeech(message.content),
+                                        ),
+                                    )
+                                },
+                            ),
+                        searchState = searchState,
+                        listState = listState,
+                        scrollController = scrollController,
+                        likeSessionId = likeSessionId,
+                        reactions = reactions,
+                        replyErrorContent =
+                            state.replyFailure?.takeUnless { timelineState.isHistorical }?.let { failure ->
+                                {
+                                    val clipboard = LocalClipboardManager.current
+                                    val copiedMessage = stringResource(R.string.chat_reply_failed_copied)
+                                    val shareTitle = stringResource(R.string.chat_reply_failed_share)
+                                    val shareUnavailable = stringResource(R.string.chat_reply_failed_share_unavailable)
+                                    ReplyErrorCard(
+                                        failure = failure,
+                                        onDismiss = { viewModel.dismissReplyFailure(failure.id) },
+                                        onOpenLogs = { NavigationController.navigateTo(LogsScreen) },
+                                        onCopy = { details ->
+                                            clipboard.setText(AnnotatedString(details))
+                                            scrollScope.launch { snackbarHostState.showSnackbar(copiedMessage) }
+                                        },
+                                        onShare = { details ->
+                                            val report = "Hermes Mobile ${BuildConfig.VERSION_NAME}\n\n$details"
+                                            val intent =
+                                                Intent(Intent.ACTION_SEND).apply {
+                                                    type = "text/plain"
+                                                    putExtra(Intent.EXTRA_TEXT, report)
+                                                }
+                                            try {
+                                                launchExternalActivity {
+                                                    context.startActivity(Intent.createChooser(intent, shareTitle))
+                                                }
+                                            } catch (_: ActivityNotFoundException) {
+                                                scrollScope.launch { snackbarHostState.showSnackbar(shareUnavailable) }
+                                            }
+                                        },
+                                    )
+                                }
                             },
-                        ),
-                    searchState = searchState,
-                    listState = listState,
-                    scrollController = scrollController,
-                    replyErrorContent =
-                        state.replyFailure?.takeUnless { timelineState.isHistorical }?.let { failure ->
-                            {
-                                val clipboard = LocalClipboardManager.current
-                                val copiedMessage = stringResource(R.string.chat_reply_failed_copied)
-                                val shareTitle = stringResource(R.string.chat_reply_failed_share)
-                                val shareUnavailable = stringResource(R.string.chat_reply_failed_share_unavailable)
-                                ReplyErrorCard(
-                                    failure = failure,
-                                    onDismiss = { viewModel.dismissReplyFailure(failure.id) },
-                                    onOpenLogs = { NavigationController.navigateTo(LogsScreen) },
-                                    onCopy = { details ->
-                                        clipboard.setText(AnnotatedString(details))
-                                        scrollScope.launch { snackbarHostState.showSnackbar(copiedMessage) }
-                                    },
-                                    onShare = { details ->
-                                        val report = "Hermes Mobile ${BuildConfig.VERSION_NAME}\n\n$details"
-                                        val intent =
-                                            Intent(Intent.ACTION_SEND).apply {
-                                                type = "text/plain"
-                                                putExtra(Intent.EXTRA_TEXT, report)
-                                            }
-                                        try {
-                                            launchExternalActivity {
-                                                context.startActivity(Intent.createChooser(intent, shareTitle))
-                                            }
-                                        } catch (_: ActivityNotFoundException) {
-                                            scrollScope.launch { snackbarHostState.showSnackbar(shareUnavailable) }
-                                        }
-                                    },
-                                )
-                            }
-                        },
-                )
+                    )
+                }
 
                 // Loading overlay
                 ChatLoadingOverlay(
@@ -857,12 +1011,32 @@ fun ChatScreen(
                     },
             )
 
+            if (!timelineState.isHistorical) {
+                PendingSendRecovery(
+                    sends = state.pendingSends,
+                    canSend = state.isConnected && state.isSessionReady,
+                    mainTurnBusy = state.isMainTurnBusy,
+                    onSendAgain = viewModel::sendQueuedNow,
+                    onDiscard = viewModel::discardPendingSend,
+                    onAcknowledge = viewModel::acknowledgePendingSend,
+                    onRemoveAcknowledged = viewModel::removeAcknowledgedPendingSend,
+                    onOpenAttachment = viewModel::openAttachment,
+                    onImageClick = { viewingImage = it },
+                )
+            }
+
+            replyTo?.let { target -> ReplyBar(target = target, onClose = { replyTo = null }) }
+
             ChatInputBar(
-                inputFieldValue = inputFieldValue,
-                onInputChange = { inputFieldValue = it },
+                inputState = inputState,
+                receiveContentListener = imagePaste,
+                isReceivingContent = imagePaste.isReceiving,
                 onSend = {
-                    if (viewModel.sendMessage(inputFieldValue.text)) {
-                        inputFieldValue = TextFieldValue("")
+                    if (!imagePaste.isReceiving &&
+                        viewModel.sendMessage(buildReplyText(replyTo, inputState.text.toString()))
+                    ) {
+                        inputState.clearText()
+                        replyTo = null
                         // Jump only after an accepted send. A readiness race keeps the draft intact.
                         scrollController.jumpToBottom(animated = true)
                     }
@@ -875,6 +1049,7 @@ fun ChatScreen(
                 isListening = mediaLaunchers.isListening || state.isTranscribingVoiceNote,
                 isRecordingVoice = mediaLaunchers.isRecordingVoice,
                 isVoiceNoteLocked = mediaLaunchers.isVoiceNoteLocked,
+                amplitudeProvider = mediaLaunchers.amplitudeProvider,
                 onStopGeneration = { viewModel.interruptSession() },
                 isAgentTyping = state.isAgentTyping,
                 canInterrupt = state.canInterrupt,
@@ -1006,6 +1181,9 @@ fun ChatScreen(
             SubagentInspectionSheet(
                 indicators = state.subagentIndicators,
                 todos = state.todos,
+                processes = state.backgroundProcesses,
+                killingProcessId = state.killingProcessId,
+                onKillProcess = { id -> viewModel.killBackgroundProcess(id) },
                 inspectingSubagentId = state.inspectingSubagentId,
                 subagentTranscript = state.subagentTranscript,
                 onToggleTranscript = { subagentId -> viewModel.toggleSubagentTranscript(subagentId) },
@@ -1089,4 +1267,57 @@ internal fun ChatBackgroundConnectionMenuItem(
         onClick = { onToggle(!checked) },
         modifier = Modifier.testTag("chat_menu_keep_connected"),
     )
+}
+
+/** "Replying to" strip above the composer: who is quoted, a one-line excerpt and a close button. */
+@Composable
+private fun ReplyBar(
+    target: ReplyTarget,
+    onClose: () -> Unit,
+) {
+    val toybox = LocalToybox.current
+    val shape = RoundedCornerShape(if (toybox) 18.dp else 12.dp)
+    val textColor = if (toybox) BotsPalette.ToyText else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 4.dp)
+                .then(
+                    if (toybox) {
+                        Modifier.padding(end = 4.dp, bottom = 4.dp).toySticker(shape, BotsPalette.ToyWhite)
+                    } else {
+                        Modifier.clip(shape).background(MaterialTheme.colorScheme.surfaceVariant)
+                    },
+                ).padding(start = 12.dp, top = 4.dp, bottom = 4.dp, end = 4.dp)
+                .testTag("reply_bar"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text =
+                    stringResource(
+                        if (target.fromBot) R.string.chat_replying_to_bot else R.string.chat_replying_to_self,
+                    ),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = if (toybox) BotsPalette.ToyAccent else MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                text = target.excerpt,
+                style = MaterialTheme.typography.bodySmall,
+                color = textColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        IconButton(onClick = onClose, modifier = Modifier.size(32.dp).testTag("reply_bar_close")) {
+            Icon(
+                imageVector = Icons.Filled.Close,
+                contentDescription = stringResource(R.string.content_desc_cancel_reply),
+                modifier = Modifier.size(16.dp),
+                tint = textColor,
+            )
+        }
+    }
 }

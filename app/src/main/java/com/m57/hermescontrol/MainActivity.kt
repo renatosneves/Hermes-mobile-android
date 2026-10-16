@@ -21,8 +21,11 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.m57.hermescontrol.data.local.AuthManager
 import com.m57.hermescontrol.data.update.UpdateNoticeManager
 import com.m57.hermescontrol.data.ws.HermesWsClient
+import com.m57.hermescontrol.diagnostics.FreezeReportPrompt
+import com.m57.hermescontrol.notification.CronInboxSync
 import com.m57.hermescontrol.notification.NotificationHelper
 import com.m57.hermescontrol.notification.NotificationReplyReceiver
+import com.m57.hermescontrol.share.ShareInbox
 import com.m57.hermescontrol.theme.HermesControlTheme
 import com.m57.hermescontrol.ui.common.ErrorState
 import com.m57.hermescontrol.ui.common.LoadingState
@@ -62,6 +65,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         consumeNotificationIntent(intent)
+        consumeShareIntent(intent)
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -108,6 +112,7 @@ class MainActivity : ComponentActivity() {
                                 LoadingState()
                             } else {
                                 MainNavigation()
+                                FreezeReportPrompt()
                             }
                         }
 
@@ -129,6 +134,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         consumeNotificationIntent(intent)
+        consumeShareIntent(intent)
     }
 
     override fun onResume() {
@@ -158,12 +164,43 @@ class MainActivity : ComponentActivity() {
         super.onStop()
     }
 
+    /** Something shared from another app: hold it and show the bot list so you can pick who gets it. */
+    private fun consumeShareIntent(intent: Intent?) {
+        if (!ShareInbox.isShare(intent)) return
+        val shared = Intent(intent)
+        // Handled once: a recreation must not re-deliver it.
+        intent?.action = null
+        ShareInbox.receive(applicationContext, shared) {
+            NavigationController.navigateTo(NavigationController.HomeScreen)
+        }
+    }
+
     private fun consumeNotificationIntent(intent: Intent?) {
         // Issue #832: MainActivity is exported (launcher requirement) — only
         // honor intents stamped with our own notification action.
         if (intent?.action != ACTION_OPEN_CHAT_FROM_NOTIFICATION) return
         val sessionId = intent.getStringExtra(NotificationReplyReceiver.EXTRA_SESSION_ID)
         intent.removeExtra(NotificationReplyReceiver.EXTRA_SESSION_ID)
-        sessionId?.takeIf { it.isNotBlank() }?.let(NavigationController::openChatSessionFromNotification)
+        val server = intent.getStringExtra(CronInboxSync.EXTRA_SERVER)
+        val profile = intent.getStringExtra(CronInboxSync.EXTRA_PROFILE)
+        intent.removeExtra(CronInboxSync.EXTRA_SERVER)
+        intent.removeExtra(CronInboxSync.EXTRA_PROFILE)
+        if (server != null) {
+            lifecycleScope.launch {
+                AuthManager.initializationState.first { it == AuthManager.InitializationState.Ready }
+                if (server !=
+                    AuthManager.contextFlow.value
+                        ?.baseUrl
+                        ?.trimEnd('/')
+                ) {
+                    return@launch
+                }
+                if (profile == null || !profile.matches(Regex("[a-zA-Z0-9_-]{1,80}"))) return@launch
+                AuthManager.setActiveProfileId(profile)
+                sessionId?.takeIf { it.isNotBlank() }?.let(NavigationController::openChatSessionFromNotification)
+            }
+        } else {
+            sessionId?.takeIf { it.isNotBlank() }?.let(NavigationController::openChatSessionFromNotification)
+        }
     }
 }

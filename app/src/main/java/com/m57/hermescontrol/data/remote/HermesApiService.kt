@@ -20,10 +20,13 @@ import com.m57.hermescontrol.data.model.CreateCronJobRequest
 import com.m57.hermescontrol.data.model.CreateProfileRequest
 import com.m57.hermescontrol.data.model.CreateTaskBody
 import com.m57.hermescontrol.data.model.CreateWebhookRequest
+import com.m57.hermescontrol.data.model.CredentialPoolAddRequest
 import com.m57.hermescontrol.data.model.CredentialPoolResponse
 import com.m57.hermescontrol.data.model.CronBlueprintListResponse
+import com.m57.hermescontrol.data.model.CronInboxResponse
 import com.m57.hermescontrol.data.model.CronJob
 import com.m57.hermescontrol.data.model.CuratorResponse
+import com.m57.hermescontrol.data.model.DebugShareRequest
 import com.m57.hermescontrol.data.model.DebugShareResponse
 import com.m57.hermescontrol.data.model.DeleteWebhookResponse
 import com.m57.hermescontrol.data.model.DeliveryTargetsResponse
@@ -38,6 +41,8 @@ import com.m57.hermescontrol.data.model.EnvVarUpdate
 import com.m57.hermescontrol.data.model.GatewayMigrationPlan
 import com.m57.hermescontrol.data.model.GatewayMigrationStartResponse
 import com.m57.hermescontrol.data.model.HealthStatus
+import com.m57.hermescontrol.data.model.HookCreateRequest
+import com.m57.hermescontrol.data.model.HookDeleteRequest
 import com.m57.hermescontrol.data.model.HookResponse
 import com.m57.hermescontrol.data.model.InstantiateBlueprintRequest
 import com.m57.hermescontrol.data.model.KanbanBoardResponse
@@ -57,6 +62,7 @@ import com.m57.hermescontrol.data.model.McpOAuthFlowResponse
 import com.m57.hermescontrol.data.model.McpServer
 import com.m57.hermescontrol.data.model.McpServerTestResponse
 import com.m57.hermescontrol.data.model.McpServerToggleRequest
+import com.m57.hermescontrol.data.model.McpServersReplaceRequest
 import com.m57.hermescontrol.data.model.McpServersResponse
 import com.m57.hermescontrol.data.model.MemoryProviderConfigResponse
 import com.m57.hermescontrol.data.model.MemoryProviderConfigUpdateRequest
@@ -143,6 +149,9 @@ import com.m57.hermescontrol.data.model.UpdateProfileModelRequest
 import com.m57.hermescontrol.data.model.UpdateProfileSoulRequest
 import com.m57.hermescontrol.data.model.UpdateRawConfigRequest
 import com.m57.hermescontrol.data.model.UpdateReceiptResponse
+import com.m57.hermescontrol.data.model.VoiceLiveSessionRequest
+import com.m57.hermescontrol.data.model.VoiceLiveSessionResponse
+import com.m57.hermescontrol.data.model.VoiceLiveStatusResponse
 import com.m57.hermescontrol.data.model.WebhookSubscription
 import com.m57.hermescontrol.data.model.WebhookToggleSubscriptionRequest
 import com.m57.hermescontrol.data.model.WebhooksResponse
@@ -187,6 +196,16 @@ interface HermesApiService : KanbanApiService {
         @Query("order") order: String = "recent",
         @Query("source") source: String? = null,
         @Query("exclude_sources") excludeSources: String? = null,
+        // exclude (backend default) | include | only (issue #1496)
+        @Query("archived") archived: String? = null,
+    ): Response<SessionListResponse>
+
+    /** Another bot's newest sessions; the hand-off view uses it to find the run Ask started. */
+    @GET("api/sessions")
+    suspend fun getProfileSessions(
+        @Query("profile") profile: String,
+        @Query("limit") limit: Int = 8,
+        @Query("order") order: String = "recent",
     ): Response<SessionListResponse>
 
     @GET("api/sessions/search")
@@ -198,6 +217,12 @@ interface HermesApiService : KanbanApiService {
         @Query("limit") limit: Int = 20,
         @Query("offset") offset: Int = 0,
     ): Response<SessionSearchResponse>
+
+    @GET("api/cron/inbox")
+    suspend fun getCronInbox(
+        @Query("after") after: Long = 0,
+        @Query("limit") limit: Int = 100,
+    ): Response<CronInboxResponse>
 
     @GET("api/sessions/{id}/messages")
     suspend fun getSessionMessages(
@@ -251,10 +276,10 @@ interface HermesApiService : KanbanApiService {
         @Body body: SessionRenameRequest,
     ): Response<Unit>
 
-    // Hide/unhide rides the same PATCH /api/sessions/{id} — body carries only
-    // {hidden} (backend SessionRename model, any subset accepted; issue #1019).
+    // Archive/unarchive rides the same PATCH /api/sessions/{id} — body carries only
+    // {archived} (backend SessionRename model, any subset accepted; issue #1496).
     @PATCH("api/sessions/{id}")
-    suspend fun setSessionHidden(
+    suspend fun setSessionArchived(
         @Path("id", encoded = true) sessionId: String,
         @Body body: SessionRenameRequest,
     ): Response<Unit>
@@ -545,6 +570,12 @@ interface HermesApiService : KanbanApiService {
     @GET("api/config")
     suspend fun getConfig(): Response<Map<String, JsonElement>>
 
+    @GET("api/config")
+    suspend fun getSavedConfig(
+        @Query("profile") profile: String? = null,
+        @Query("include_defaults") includeDefaults: Boolean = false,
+    ): Response<Map<String, JsonElement>>
+
     @GET("api/config/schema")
     suspend fun getConfigSchema(): Response<ConfigSchemaResponse>
 
@@ -580,11 +611,10 @@ interface HermesApiService : KanbanApiService {
         @Body body: AddMcpServerRequest,
     ): Response<McpServer>
 
-    @PUT("api/mcp/servers/{name}")
-    suspend fun updateMcpServer(
-        @Path("name") name: String,
-        @Body body: Map<String, Any>,
-    ): Response<McpServer>
+    @PUT("api/mcp/servers")
+    suspend fun replaceMcpServers(
+        @Body body: McpServersReplaceRequest,
+    ): Response<Unit>
 
     @POST("api/mcp/servers/{name}/auth")
     suspend fun authMcpServer(
@@ -602,7 +632,7 @@ interface HermesApiService : KanbanApiService {
     @POST("api/mcp/catalog/install")
     suspend fun installMcpCatalogEntry(
         @Body body: McpCatalogInstallRequest,
-    ): Response<Map<String, Any>>
+    ): Response<ActionResponse>
 
     @GET("api/webhooks")
     suspend fun getWebhooks(): Response<WebhooksResponse>
@@ -714,11 +744,6 @@ interface HermesApiService : KanbanApiService {
     suspend fun testMessagingPlatform(
         @Path("platform_id") platformId: String,
     ): Response<MessagingPlatformTestResult>
-
-    @DELETE("api/messaging/platforms/{platform_id}")
-    suspend fun removeMessagingPlatform(
-        @Path("platform_id") platformId: String,
-    ): Response<Unit>
 
     @POST("api/messaging/telegram/onboarding/start")
     suspend fun startTelegramOnboarding(
@@ -881,7 +906,7 @@ interface HermesApiService : KanbanApiService {
     @PUT("api/curator/paused")
     suspend fun setCuratorPaused(
         @Body body: Map<String, Boolean>,
-    ): Response<Map<String, Any>>
+    ): Response<ActionResponse>
 
     @POST("api/curator/run")
     suspend fun runCurator(): Response<ActionResponse>
@@ -918,14 +943,14 @@ interface HermesApiService : KanbanApiService {
 
     @POST("api/credentials/pool")
     suspend fun addCredentialPoolEntry(
-        @Body body: Map<String, String>,
-    ): Response<Map<String, Any>>
+        @Body body: CredentialPoolAddRequest,
+    ): Response<ActionResponse>
 
     @DELETE("api/credentials/pool/{provider}/{index}")
     suspend fun removeCredentialPoolEntry(
         @Path("provider") provider: String,
         @Path("index") index: Int,
-    ): Response<Map<String, Any>>
+    ): Response<ActionResponse>
 
     // ── Admin: Operations ─────────────────────────────────────────────
     @POST("api/ops/security-audit")
@@ -968,7 +993,7 @@ interface HermesApiService : KanbanApiService {
     // ── Admin: Debug share ────────────────────────────────────────────
     @POST("api/ops/debug-share")
     suspend fun runDebugShare(
-        @Body body: Map<String, Any>,
+        @Body body: DebugShareRequest,
     ): Response<DebugShareResponse>
 
     // ── Admin: Checkpoints ────────────────────────────────────────────
@@ -984,13 +1009,13 @@ interface HermesApiService : KanbanApiService {
 
     @POST("api/ops/hooks")
     suspend fun createHook(
-        @Body body: Map<String, Any>,
-    ): Response<Map<String, Any>>
+        @Body body: HookCreateRequest,
+    ): Response<ActionResponse>
 
-    @DELETE("api/ops/hooks")
+    @HTTP(method = "DELETE", path = "api/ops/hooks", hasBody = true)
     suspend fun deleteHook(
-        @Body body: Map<String, String>,
-    ): Response<Map<String, Any>>
+        @Body body: HookDeleteRequest,
+    ): Response<ActionResponse>
 
     // ── Admin: Action status (log viewer) ────────────────────────────
     @GET("api/actions/{name}/status")
@@ -1051,4 +1076,18 @@ interface HermesApiService : KanbanApiService {
         @Body request: TtsSpeakRequest,
         @Query("profile") profile: String? = null,
     ): Response<TtsSpeakResponse>
+
+    // ── Audio: GPT-Live voice chat ──────────────────────────────────────
+    // The gateway exchanges our WebRTC offer with OpenAI's live voice model
+    // so the API key stays on the server (tools/voice_live.py).
+    @GET("api/audio/voice-live/status")
+    suspend fun voiceLiveStatus(
+        @Query("profile") profile: String? = null,
+    ): Response<VoiceLiveStatusResponse>
+
+    @POST("api/audio/voice-live/session")
+    suspend fun createVoiceLiveSession(
+        @Body body: VoiceLiveSessionRequest,
+        @Query("profile") profile: String? = null,
+    ): Response<VoiceLiveSessionResponse>
 }

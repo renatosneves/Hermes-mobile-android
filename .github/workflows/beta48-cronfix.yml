@@ -1,0 +1,55 @@
+name: Beta 48 cron-fix APK
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - '.github/workflows/beta48-cronfix.yml'
+      - 'app/**'
+permissions:
+  contents: read
+concurrency:
+  group: beta48-cronfix-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  beta-apk:
+    if: github.head_ref == 'fix/beta48-cron-inbox'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          validate-wrappers: true
+      - name: Test scheduled-delivery regressions
+        run: |
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest \
+            --tests 'com.m57.hermescontrol.notification.CronInboxPersistenceTest' \
+            --tests 'com.m57.hermescontrol.notification.CronInboxSyncTest' \
+            --tests 'com.m57.hermescontrol.notification.NewMessageDeciderTest' \
+            --tests 'com.m57.hermescontrol.data.ws.EventParserTest' \
+            --tests 'com.m57.hermescontrol.ui.chat.CronFollowUpsTest'
+      - name: Build optimized beta 48 update
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleBeta -PversionCode=20148 -PversionName=2.1.0-beta.48-cronfix.1
+      - name: Verify APK identity and signing
+        run: |
+          APK=app/build/outputs/apk/beta/app-beta.apk
+          SDK_TOOLS="$ANDROID_HOME/build-tools/37.0.0"
+          "$SDK_TOOLS/aapt" dump badging "$APK" | head -1
+          "$SDK_TOOLS/apksigner" verify --print-certs "$APK"
+          sha256sum "$APK"
+          cp "$APK" hermes-mobile-v2.1.0-beta.48-cronfix.1.apk
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hermes-mobile-beta48-cronfix
+          path: hermes-mobile-v2.1.0-beta.48-cronfix.1.apk
+          if-no-files-found: error
+          retention-days: 14

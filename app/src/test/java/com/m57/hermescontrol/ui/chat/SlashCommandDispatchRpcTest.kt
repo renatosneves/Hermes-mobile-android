@@ -4,14 +4,19 @@ import android.app.Application
 import com.m57.hermescontrol.data.local.AuthManager
 import com.m57.hermescontrol.data.local.DataScope
 import com.m57.hermescontrol.data.local.HermesDatabase
+import com.m57.hermescontrol.data.model.ModelOptionsResponse
 import com.m57.hermescontrol.data.model.PaginationInfo
 import com.m57.hermescontrol.data.model.SessionMessagesResponse
 import com.m57.hermescontrol.data.remote.ApiClient
+import com.m57.hermescontrol.data.remote.HermesApiService
 import com.m57.hermescontrol.data.session.ProfileSwitchCoordinator
 import com.m57.hermescontrol.data.ws.ConnectionStatus
 import com.m57.hermescontrol.data.ws.HermesWsClient
 import com.m57.hermescontrol.data.ws.WsEvent
 import com.m57.hermescontrol.data.ws.WsMethods
+import com.m57.hermescontrol.data.ws.contract.ConfigGetParams
+import com.m57.hermescontrol.data.ws.contract.ConfigSetParams
+import com.m57.hermescontrol.data.ws.contract.RpcMethods
 import com.m57.hermescontrol.ui.chat.fakes.FakeChatPersistenceRepository
 import com.m57.hermescontrol.ui.chat.fakes.FakeSlashUsageStore
 import io.mockk.coEvery
@@ -21,6 +26,7 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
+import io.mockk.verify
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -32,11 +38,16 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.putJsonArray
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import retrofit2.Response
 
 /**
  * Issue #549 — Layer 1+2 linkage: a non-hardcoded slash command must be
@@ -90,6 +101,14 @@ class SlashCommandDispatchRpcTest {
         mockkObject(ApiClient)
         mockkObject(HermesDatabase)
 
+        // Fix #1437 CI: GatewayReady preloads the catalog; isolate both transports
+        // so background model discovery cannot outlive the AuthManager fixture.
+        val api = mockk<HermesApiService>()
+        every { ApiClient.hermesApi } returns api
+        coEvery { api.getModelOptions(any(), any()) } returns Response.success(ModelOptionsResponse(emptyList()))
+        coEvery { HermesWsClient.call(RpcMethods.MODEL_OPTIONS, any(), any(), any()) } returns
+            buildJsonObject { putJsonArray("providers") {} }
+
         // ChatViewModel's init subscribes to ProfileSwitchCoordinator.switched
         // on viewModelScope. Without mocking the singleton, every VM created
         // here parks a collector on the REAL flow — when a later test class
@@ -98,6 +117,7 @@ class SlashCommandDispatchRpcTest {
         // pattern) so the collectors park harmlessly.
         mockkObject(ProfileSwitchCoordinator)
         every { ProfileSwitchCoordinator.switched } returns MutableSharedFlow<String>()
+        every { ProfileSwitchCoordinator.chatReset } returns MutableSharedFlow<String>()
         every { ProfileSwitchCoordinator.connectionSwitched } returns MutableSharedFlow<String>()
 
         app = mockk(relaxed = true)
@@ -155,7 +175,7 @@ class SlashCommandDispatchRpcTest {
         // can end up holding session.usage instead of command.dispatch (CI run
         // 31137581335 on 4645a2b: slash-focus flake).
         // Specific per-test request() stubs registered later take precedence.
-        every { HermesWsClient.request(any(), any(), any()) } answers {
+        every { HermesWsClient.request(any(), any(), any(), any()) } answers {
             HermesWsClient.send(arg(0), arg(1)) {}
             CompletableDeferred<Any?>(Unit)
         }
@@ -188,7 +208,7 @@ class SlashCommandDispatchRpcTest {
     }
 
     @Test
-    fun `non-hardcoded slash command forwards name arg session_id to COMMAND_DISPATCH`() =
+    fun `non-hardcoded slash command forwards command and session_id to SLASH_EXEC`() =
         runTest {
             val (vm, sessionId) = createViewModelWithSession()
 
@@ -196,7 +216,7 @@ class SlashCommandDispatchRpcTest {
             val paramsCalls = mutableListOf<Map<String, Any>>()
             var captured = false
             every {
-                HermesWsClient.request(capture(methodCalls), capture(paramsCalls), any())
+                HermesWsClient.request(capture(methodCalls), capture(paramsCalls), any(), any())
             } answers {
                 captured = true
                 CompletableDeferred<Any?>(Unit)
@@ -210,12 +230,65 @@ class SlashCommandDispatchRpcTest {
             // Captures hold ALL requests — the create flow's session.usage /
             // context_breakdown can land after the dispatch one (capture race,
             // CI 2026-08-06 + 2026-08-07). Find the record, don't trust "last".
-            val dispatchIndex = methodCalls.indexOf(WsMethods.COMMAND_DISPATCH)
-            assertTrue("expected COMMAND_DISPATCH, got $methodCalls", dispatchIndex >= 0)
-            val params = paramsCalls[dispatchIndex]
-            assertEquals("help", params["name"])
-            assertEquals("", params["arg"])
-            assertEquals(sessionId, params["session_id"])
+            val execIndex = methodCalls.indexOf(WsMethods.SLASH_EXEC)
+            assertTrue("expected SLASH_EXEC, got $methodCalls", execIndex >= 0)
+            assertTrue(WsMethods.COMMAND_DISPATCH !in methodCalls)
+            val params = paramsCalls[execIndex]
+            assertEquals(JsonPrimitive("help"), params["command"])
+            assertEquals(JsonPrimitive(sessionId), params["session_id"])
+        }
+
+    @Test
+    fun `usage renders warning and suppresses intermediate error events`() =
+        runTest {
+            val (vm, _) = createViewModelWithSession()
+            every { HermesWsClient.request(WsMethods.SLASH_EXEC, any(), any(), true) } returns
+                CompletableDeferred<Any?>(mapOf("output" to "Session Token Usage", "warning" to "estimated"))
+
+            vm.sendMessage("/usage")
+            advanceUntilIdle()
+
+            verify(exactly = 1) { HermesWsClient.request(WsMethods.SLASH_EXEC, any(), any(), true) }
+            verify(exactly = 0) { HermesWsClient.request(WsMethods.COMMAND_DISPATCH, any(), any(), any()) }
+            assertEquals(
+                "warning: estimated\nSession Token Usage",
+                vm.uiState.value.messages
+                    .last()
+                    .content,
+            )
+            assertNull(vm.uiState.value.errorMessage)
+        }
+
+    @Test
+    fun `slash failure falls back with name arg and suppresses both error events`() =
+        runTest {
+            val (vm, sessionId) = createViewModelWithSession()
+            val calls = mutableListOf<String>()
+            val params = mutableListOf<Map<String, Any>>()
+            every { HermesWsClient.request(capture(calls), capture(params), any(), true) } answers {
+                if (arg<String>(0) == WsMethods.SLASH_EXEC) {
+                    CompletableDeferred<Any?>().apply {
+                        completeExceptionally(HermesWsClient.HermesRpcException("worker unavailable"))
+                    }
+                } else {
+                    CompletableDeferred<Any?>(mapOf("type" to "plugin", "output" to "plugin result"))
+                }
+            }
+
+            vm.sendMessage("/custom some args")
+            advanceUntilIdle()
+
+            assertEquals(listOf(WsMethods.SLASH_EXEC, WsMethods.COMMAND_DISPATCH), calls)
+            assertEquals(JsonPrimitive("custom"), params[1]["name"])
+            assertEquals(JsonPrimitive("some args"), params[1]["arg"])
+            assertEquals(JsonPrimitive(sessionId), params[1]["session_id"])
+            assertEquals(
+                "plugin result",
+                vm.uiState.value.messages
+                    .last()
+                    .content,
+            )
+            assertNull(vm.uiState.value.errorMessage)
         }
 
     @Test
@@ -229,9 +302,15 @@ class SlashCommandDispatchRpcTest {
             val sentText = slot<String>()
             val sentQueued = slot<Boolean>()
             every {
-                HermesWsClient.request(capture(methodCalls), capture(paramsCalls), any())
+                HermesWsClient.request(capture(methodCalls), capture(paramsCalls), any(), any())
             } answers {
-                CompletableDeferred<Any?>(Unit)
+                if (arg<String>(0) == WsMethods.SLASH_EXEC) {
+                    CompletableDeferred<Any?>().apply {
+                        completeExceptionally(HermesWsClient.HermesRpcException("slash unavailable"))
+                    }
+                } else {
+                    CompletableDeferred<Any?>(Unit)
+                }
             }
             every {
                 HermesWsClient.sendMessage(
@@ -271,35 +350,27 @@ class SlashCommandDispatchRpcTest {
         runTest {
             val (vm, sessionId) = createViewModelWithSession()
 
-            val methodCalls = mutableListOf<String>()
-            val paramsCalls = mutableListOf<Map<String, Any>>()
-            every {
-                HermesWsClient.request(capture(methodCalls), capture(paramsCalls), any())
+            val setCalls = mutableListOf<ConfigSetParams>()
+            coEvery {
+                HermesWsClient.call(RpcMethods.CONFIG_SET, capture(setCalls), any(), any())
             } answers {
-                val result =
-                    if (arg<String>(0) == WsMethods.CONFIG_SET) {
-                        kotlinx.serialization.json.buildJsonObject {
-                            put("key", kotlinx.serialization.json.JsonPrimitive("reasoning"))
-                            put("value", kotlinx.serialization.json.JsonPrimitive("high"))
-                        }
-                    } else {
-                        kotlinx.serialization.json.JsonNull
-                    }
-                CompletableDeferred<Any?>(result)
+                kotlinx.serialization.json.buildJsonObject {
+                    put("key", kotlinx.serialization.json.JsonPrimitive("reasoning"))
+                    put("value", kotlinx.serialization.json.JsonPrimitive("high"))
+                }
             }
 
             vm.sendMessage("/reasoning high --global")
             advanceUntilIdle()
 
-            val configIndex = methodCalls.indexOf(WsMethods.CONFIG_SET)
-            assertTrue("expected CONFIG_SET, got $methodCalls", configIndex >= 0)
-            val params = paramsCalls[configIndex]
-            assertEquals("reasoning", params["key"])
-            assertEquals("high", params["value"])
-            assertEquals(sessionId, params["session_id"])
-            assertEquals("global", params["scope"])
+            assertEquals("expected exactly one config.set, got $setCalls", 1, setCalls.size)
+            val params = setCalls.single()
+            assertEquals("reasoning", params.key)
+            assertEquals("high", params.value)
+            assertEquals(sessionId, params.sessionId)
+            assertEquals("global", params.scope)
             assertEquals("high", vm.uiState.value.reasoningLevel)
-            assertTrue(WsMethods.COMMAND_DISPATCH !in methodCalls)
+            verify(exactly = 0) { HermesWsClient.send(WsMethods.COMMAND_DISPATCH, any(), any()) }
         }
 
     @Test
@@ -307,33 +378,26 @@ class SlashCommandDispatchRpcTest {
         runTest {
             val (vm, sessionId) = createViewModelWithSession()
 
-            val methodCalls = mutableListOf<String>()
-            val paramsCalls = mutableListOf<Map<String, Any>>()
-            every {
-                HermesWsClient.request(capture(methodCalls), capture(paramsCalls), any())
+            val setCalls = mutableListOf<ConfigSetParams>()
+            coEvery {
+                HermesWsClient.call(RpcMethods.CONFIG_SET, capture(setCalls), any(), any())
             } answers {
-                val result =
-                    if (arg<String>(0) == WsMethods.CONFIG_SET) {
-                        kotlinx.serialization.json.buildJsonObject {
-                            put("key", kotlinx.serialization.json.JsonPrimitive("reasoning"))
-                            put("value", kotlinx.serialization.json.JsonPrimitive("show"))
-                        }
-                    } else {
-                        kotlinx.serialization.json.JsonNull
-                    }
-                CompletableDeferred<Any?>(result)
+                kotlinx.serialization.json.buildJsonObject {
+                    put("key", kotlinx.serialization.json.JsonPrimitive("reasoning"))
+                    put("value", kotlinx.serialization.json.JsonPrimitive("show"))
+                }
             }
 
             vm.sendMessage("/reasoning show")
             advanceUntilIdle()
 
-            val configIndex = methodCalls.indexOf(WsMethods.CONFIG_SET)
-            assertTrue("expected CONFIG_SET, got $methodCalls", configIndex >= 0)
-            val params = paramsCalls[configIndex]
-            assertEquals("reasoning", params["key"])
-            assertEquals("show", params["value"])
-            assertEquals(sessionId, params["session_id"])
-            assertTrue(WsMethods.COMMAND_DISPATCH !in methodCalls)
+            assertEquals("expected exactly one config.set, got $setCalls", 1, setCalls.size)
+            val params = setCalls.single()
+            assertEquals("reasoning", params.key)
+            assertEquals("show", params.value)
+            assertEquals(sessionId, params.sessionId)
+            assertNull(params.scope)
+            verify(exactly = 0) { HermesWsClient.send(WsMethods.COMMAND_DISPATCH, any(), any()) }
             assertEquals(
                 "reasoning: show",
                 vm.uiState.value.messages
@@ -347,32 +411,24 @@ class SlashCommandDispatchRpcTest {
         runTest {
             val (vm, sessionId) = createViewModelWithSession()
 
-            val methodCalls = mutableListOf<String>()
-            val paramsCalls = mutableListOf<Map<String, Any>>()
-            every {
-                HermesWsClient.request(capture(methodCalls), capture(paramsCalls), any())
+            val getCalls = mutableListOf<ConfigGetParams>()
+            coEvery {
+                HermesWsClient.call(RpcMethods.CONFIG_GET, capture(getCalls), any(), any())
             } answers {
-                val result =
-                    if (arg<String>(0) == WsMethods.CONFIG_GET) {
-                        kotlinx.serialization.json.buildJsonObject {
-                            put("value", kotlinx.serialization.json.JsonPrimitive("ultra"))
-                            put("display", kotlinx.serialization.json.JsonPrimitive("hide"))
-                        }
-                    } else {
-                        kotlinx.serialization.json.JsonNull
-                    }
-                CompletableDeferred<Any?>(result)
+                kotlinx.serialization.json.buildJsonObject {
+                    put("value", kotlinx.serialization.json.JsonPrimitive("ultra"))
+                    put("display", kotlinx.serialization.json.JsonPrimitive("hide"))
+                }
             }
 
             vm.sendMessage("/reasoning")
             advanceUntilIdle()
 
-            val configIndex = methodCalls.indexOf(WsMethods.CONFIG_GET)
-            assertTrue("expected CONFIG_GET, got $methodCalls", configIndex >= 0)
-            val params = paramsCalls[configIndex]
-            assertEquals("reasoning", params["key"])
-            assertEquals(sessionId, params["session_id"])
-            assertTrue(WsMethods.COMMAND_DISPATCH !in methodCalls)
+            assertEquals("expected exactly one config.get, got $getCalls", 1, getCalls.size)
+            val params = getCalls.single()
+            assertEquals("reasoning", params.key)
+            assertEquals(sessionId, params.sessionId)
+            verify(exactly = 0) { HermesWsClient.send(WsMethods.COMMAND_DISPATCH, any(), any()) }
             assertEquals(
                 "reasoning: ultra · display hide",
                 vm.uiState.value.messages
@@ -389,9 +445,15 @@ class SlashCommandDispatchRpcTest {
             val rpcMethods = mutableListOf<String>()
             var sendCalls = 0
             every {
-                HermesWsClient.request(capture(rpcMethods), any(), any())
+                HermesWsClient.request(capture(rpcMethods), any(), any(), any())
             } answers {
-                CompletableDeferred<Any?>(Unit)
+                if (arg<String>(0) == WsMethods.SLASH_EXEC) {
+                    CompletableDeferred<Any?>().apply {
+                        completeExceptionally(HermesWsClient.HermesRpcException("slash unavailable"))
+                    }
+                } else {
+                    CompletableDeferred<Any?>(Unit)
+                }
             }
             every { HermesWsClient.sendMessage(any(), any(), any(), any()) } answers {
                 sendCalls++
@@ -433,12 +495,12 @@ class SlashCommandDispatchRpcTest {
         }
 
     @Test
-    fun `non-registry-miss backend error is surfaced directly (no fallback)`() =
+    fun `actionable fallback error is surfaced`() =
         runTest {
             val (vm, _) = createViewModelWithSession()
 
             every {
-                HermesWsClient.request(any(), any(), any())
+                HermesWsClient.request(any(), any(), any(), any())
             } answers {
                 val d = CompletableDeferred<Any?>()
                 d.completeExceptionally(
@@ -459,14 +521,14 @@ class SlashCommandDispatchRpcTest {
         }
 
     @Test
-    fun `registry-miss 4018 on command dispatch falls back to slash_exec and surfaces output`() =
+    fun `slash exec success surfaces output without command dispatch`() =
         runTest {
             val (vm, sessionId) = createViewModelWithSession()
 
             val methodCalls = mutableListOf<String>()
             val paramsCalls = mutableListOf<Map<String, Any>>()
             every {
-                HermesWsClient.request(capture(methodCalls), capture(paramsCalls), any())
+                HermesWsClient.request(capture(methodCalls), capture(paramsCalls), any(), any())
             } answers {
                 // Read the method from THIS invocation, not from the shared
                 // capture list: a concurrent request() landing between capture
@@ -491,17 +553,15 @@ class SlashCommandDispatchRpcTest {
             vm.sendMessage("/status")
             advanceUntilIdle()
 
-            // The fallback must have hit slash.exec with the full command string.
+            // Successful slash.exec must not need a fallback.
             // Captures hold ALL requests — find the records instead of trusting
             // "last" (create-flow session.usage can land after; capture race).
-            val dispatchIndex = methodCalls.indexOf(WsMethods.COMMAND_DISPATCH)
-            assertTrue("expected COMMAND_DISPATCH, got $methodCalls", dispatchIndex >= 0)
+            assertTrue(WsMethods.COMMAND_DISPATCH !in methodCalls)
             val execIndex = methodCalls.indexOf(WsMethods.SLASH_EXEC)
-            assertTrue("expected SLASH_EXEC fallback, got $methodCalls", execIndex >= 0)
-            assertTrue("dispatch must precede fallback", dispatchIndex < execIndex)
+            assertTrue("expected SLASH_EXEC, got $methodCalls", execIndex >= 0)
             val params = paramsCalls[execIndex]
-            assertEquals("/status", params["command"])
-            assertEquals(sessionId, params["session_id"])
+            assertEquals(JsonPrimitive("status"), params["command"])
+            assertEquals(JsonPrimitive(sessionId), params["session_id"])
 
             // And the slash.exec output must be surfaced to the user.
             val last =
@@ -517,9 +577,15 @@ class SlashCommandDispatchRpcTest {
 
             val rpcMethods = mutableListOf<String>()
             every {
-                HermesWsClient.request(capture(rpcMethods), any(), any())
+                HermesWsClient.request(capture(rpcMethods), any(), any(), any())
             } answers {
-                CompletableDeferred<Any?>(Unit)
+                if (arg<String>(0) == WsMethods.SLASH_EXEC) {
+                    CompletableDeferred<Any?>().apply {
+                        completeExceptionally(HermesWsClient.HermesRpcException("slash unavailable"))
+                    }
+                } else {
+                    CompletableDeferred<Any?>(Unit)
+                }
             }
 
             // /redraw is TUI-only (issue #574) — hidden from suggestions but a
@@ -550,12 +616,12 @@ class SlashCommandDispatchRpcTest {
         }
 
     @Test
-    fun `slash_exec double-fault surfaces the secondary error`() =
+    fun `fallback registry miss preserves original slash exec error`() =
         runTest {
             val (vm, _) = createViewModelWithSession()
 
             every {
-                HermesWsClient.request(any(), any(), any())
+                HermesWsClient.request(any(), any(), any(), any())
             } answers {
                 val m = arg<String>(0)
                 val d = CompletableDeferred<Any?>()
@@ -578,7 +644,7 @@ class SlashCommandDispatchRpcTest {
             vm.sendMessage("/status")
             advanceUntilIdle()
 
-            // Both RPCs fail -> the secondary slash.exec error must surface.
+            // A registry miss must not mask the original worker failure.
             val last =
                 vm.uiState.value.messages
                     .lastOrNull()
@@ -586,12 +652,12 @@ class SlashCommandDispatchRpcTest {
         }
 
     @Test
-    fun `slash_exec blank output appends no assistant message`() =
+    fun `slash_exec blank output reports no output like desktop`() =
         runTest {
             val (vm, _) = createViewModelWithSession()
 
             every {
-                HermesWsClient.request(any(), any(), any())
+                HermesWsClient.request(any(), any(), any(), any())
             } answers {
                 val m = arg<String>(0)
                 val d = CompletableDeferred<Any?>()
@@ -612,12 +678,10 @@ class SlashCommandDispatchRpcTest {
             vm.sendMessage("/status")
             advanceUntilIdle()
 
-            // The user's "/status" message is added, but blank slash.exec output
-            // must NOT append an assistant bubble — so the last message is still
-            // the user's own command, and only one message was added.
-            assertEquals(before + 1, vm.uiState.value.messages.size)
+            // Desktop reports an explicit no-output notice rather than silently succeeding.
+            assertEquals(before + 2, vm.uiState.value.messages.size)
             assertEquals(
-                "/status",
+                "/status: no output",
                 vm.uiState.value.messages
                     .lastOrNull()
                     ?.content,
@@ -632,9 +696,15 @@ class SlashCommandDispatchRpcTest {
             val methodCalls = mutableListOf<String>()
             val paramsCalls = mutableListOf<Map<String, Any>>()
             every {
-                HermesWsClient.request(capture(methodCalls), capture(paramsCalls), any())
+                HermesWsClient.request(capture(methodCalls), capture(paramsCalls), any(), any())
             } answers {
-                CompletableDeferred<Any?>(Unit)
+                if (arg<String>(0) == WsMethods.SLASH_EXEC) {
+                    CompletableDeferred<Any?>().apply {
+                        completeExceptionally(HermesWsClient.HermesRpcException("slash unavailable"))
+                    }
+                } else {
+                    CompletableDeferred<Any?>(Unit)
+                }
             }
 
             // /init generates-or-updates AGENTS.md (backend command.dispatch
@@ -647,9 +717,9 @@ class SlashCommandDispatchRpcTest {
             val dispatchIndex = methodCalls.indexOf(WsMethods.COMMAND_DISPATCH)
             assertTrue("expected COMMAND_DISPATCH, got $methodCalls", dispatchIndex >= 0)
             val params = paramsCalls[dispatchIndex]
-            assertEquals("init", params["name"])
-            assertEquals("", params["arg"])
-            assertEquals(sessionId, params["session_id"])
+            assertEquals(JsonPrimitive("init"), params["name"])
+            assertEquals(JsonPrimitive(""), params["arg"])
+            assertEquals(JsonPrimitive(sessionId), params["session_id"])
         }
 
     @Test
@@ -660,9 +730,15 @@ class SlashCommandDispatchRpcTest {
             val methodCalls = mutableListOf<String>()
             val paramsCalls = mutableListOf<Map<String, Any>>()
             every {
-                HermesWsClient.request(capture(methodCalls), capture(paramsCalls), any())
+                HermesWsClient.request(capture(methodCalls), capture(paramsCalls), any(), any())
             } answers {
-                CompletableDeferred<Any?>(Unit)
+                if (arg<String>(0) == WsMethods.SLASH_EXEC) {
+                    CompletableDeferred<Any?>().apply {
+                        completeExceptionally(HermesWsClient.HermesRpcException("slash unavailable"))
+                    }
+                } else {
+                    CompletableDeferred<Any?>(Unit)
+                }
             }
 
             vm.sendMessage("/init extra context here")
@@ -672,9 +748,9 @@ class SlashCommandDispatchRpcTest {
             val dispatchIndex = methodCalls.indexOf(WsMethods.COMMAND_DISPATCH)
             assertTrue("expected COMMAND_DISPATCH, got $methodCalls", dispatchIndex >= 0)
             val params = paramsCalls[dispatchIndex]
-            assertEquals("init", params["name"])
-            assertEquals("extra context here", params["arg"])
-            assertEquals(sessionId, params["session_id"])
+            assertEquals(JsonPrimitive("init"), params["name"])
+            assertEquals(JsonPrimitive("extra context here"), params["arg"])
+            assertEquals(JsonPrimitive(sessionId), params["session_id"])
         }
 
     @Test
@@ -685,9 +761,15 @@ class SlashCommandDispatchRpcTest {
             val methodCalls = mutableListOf<String>()
             val paramsCalls = mutableListOf<Map<String, Any>>()
             every {
-                HermesWsClient.request(capture(methodCalls), capture(paramsCalls), any())
+                HermesWsClient.request(capture(methodCalls), capture(paramsCalls), any(), any())
             } answers {
-                CompletableDeferred<Any?>(Unit)
+                if (arg<String>(0) == WsMethods.SLASH_EXEC) {
+                    CompletableDeferred<Any?>().apply {
+                        completeExceptionally(HermesWsClient.HermesRpcException("slash unavailable"))
+                    }
+                } else {
+                    CompletableDeferred<Any?>(Unit)
+                }
             }
 
             // /focus is the display-only focus view (backend command.dispatch
@@ -700,9 +782,9 @@ class SlashCommandDispatchRpcTest {
             val dispatchIndex = methodCalls.indexOf(WsMethods.COMMAND_DISPATCH)
             assertTrue("expected COMMAND_DISPATCH, got $methodCalls", dispatchIndex >= 0)
             val params = paramsCalls[dispatchIndex]
-            assertEquals("focus", params["name"])
-            assertEquals("", params["arg"])
-            assertEquals(sessionId, params["session_id"])
+            assertEquals(JsonPrimitive("focus"), params["name"])
+            assertEquals(JsonPrimitive(""), params["arg"])
+            assertEquals(JsonPrimitive(sessionId), params["session_id"])
         }
 
     @Test
@@ -713,9 +795,15 @@ class SlashCommandDispatchRpcTest {
             val methodCalls = mutableListOf<String>()
             val paramsCalls = mutableListOf<Map<String, Any>>()
             every {
-                HermesWsClient.request(capture(methodCalls), capture(paramsCalls), any())
+                HermesWsClient.request(capture(methodCalls), capture(paramsCalls), any(), any())
             } answers {
-                CompletableDeferred<Any?>(Unit)
+                if (arg<String>(0) == WsMethods.SLASH_EXEC) {
+                    CompletableDeferred<Any?>().apply {
+                        completeExceptionally(HermesWsClient.HermesRpcException("slash unavailable"))
+                    }
+                } else {
+                    CompletableDeferred<Any?>(Unit)
+                }
             }
 
             vm.sendMessage("/focus on")
@@ -725,13 +813,13 @@ class SlashCommandDispatchRpcTest {
             val dispatchIndex = methodCalls.indexOf(WsMethods.COMMAND_DISPATCH)
             assertTrue("expected COMMAND_DISPATCH, got $methodCalls", dispatchIndex >= 0)
             val params = paramsCalls[dispatchIndex]
-            assertEquals("focus", params["name"])
-            assertEquals("on", params["arg"])
-            assertEquals(sessionId, params["session_id"])
+            assertEquals(JsonPrimitive("focus"), params["name"])
+            assertEquals(JsonPrimitive("on"), params["arg"])
+            assertEquals(JsonPrimitive(sessionId), params["session_id"])
         }
 
     @Test
-    fun `command dispatch type=send submits the returned prompt (init)`() =
+    fun `slash exec type=send submits the returned prompt (init)`() =
         runTest {
             val (vm, _) = createViewModelWithSession()
 
@@ -739,12 +827,12 @@ class SlashCommandDispatchRpcTest {
             val paramsCalls = mutableListOf<Map<String, Any>>()
             val sentText = slot<String>()
             every {
-                HermesWsClient.request(capture(methodCalls), capture(paramsCalls), any())
+                HermesWsClient.request(capture(methodCalls), capture(paramsCalls), any(), any())
             } answers {
                 val d = CompletableDeferred<Any?>()
                 // Read the method from THIS invocation, not from the shared
                 // capture list (see the 4018 test above).
-                if (arg<String>(0) == WsMethods.COMMAND_DISPATCH) {
+                if (arg<String>(0) == WsMethods.SLASH_EXEC) {
                     // Backend /init returns type:"send" with the AGENTS.md prompt.
                     d.complete(mapOf("type" to "send", "message" to "Scan this repo and write AGENTS.md"))
                 } else {
@@ -783,7 +871,7 @@ class SlashCommandDispatchRpcTest {
             val (vm, _) = createViewModelWithSession()
 
             every {
-                HermesWsClient.request(any(), any(), any())
+                HermesWsClient.request(any(), any(), any(), any())
             } answers {
                 val m = arg<String>(0)
                 val d = CompletableDeferred<Any?>()
@@ -791,7 +879,7 @@ class SlashCommandDispatchRpcTest {
                     // Backend /focus returns type:"exec" with a notice line.
                     d.complete(mapOf("type" to "exec", "output" to "Focus view: ON (tool progress pinned off)"))
                 } else {
-                    d.complete(mapOf("session_id" to "session-xyz"))
+                    d.completeExceptionally(HermesWsClient.HermesRpcException("slash unavailable"))
                 }
                 d
             }

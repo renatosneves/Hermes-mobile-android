@@ -50,6 +50,29 @@ class ChatSendStoreTest {
     }
 
     @Test
+    fun rowIdOnHistoryPageConfirmsAcceptedReceiptWithoutMergeMatch() {
+        val receipts =
+            listOf(
+                pending("send-1", "A").copy(userRowId = 334755L),
+                pending("send-2", "B").copy(userRowId = 999L),
+                pending("send-3", "C"),
+            )
+
+        val confirmed = pendingSendIdsConfirmedByRowIds(setOf(334755L), receipts)
+
+        assertEquals(setOf("send-1"), confirmed)
+    }
+
+    @Test
+    fun rowIdReceiptIsNotDowngradedButIdlessReceiptIs() {
+        val withRow = pending("send-1", "A").copy(userRowId = 334755L)
+        val idless = pending("send-2", "B")
+
+        assertTrue(!canDemoteAcceptedReceipt(withRow))
+        assertTrue(canDemoteAcceptedReceipt(idless))
+    }
+
+    @Test
     fun durableAliasConsumesOnlyOneDuplicateReceiptOccurrence() {
         val existing =
             listOf(
@@ -201,7 +224,76 @@ class ChatSendStoreTest {
 
         val restored = ChatSendStore(prefs).all().single()
 
-        assertEquals(PendingSendState.UNKNOWN, restored.state)
+        assertEquals(PendingSendState.ACCEPTED, restored.state)
+        assertTrue(restored.requiresExactReconciliation)
         assertEquals(0, restored.attempts)
+    }
+
+    @Test
+    fun uncertainReceiptGhostsAreHiddenWithoutConfirmingChangedServerIdentity() {
+        val local = ChatMessage("send-1", MessageRole.USER, "repeat", serverRowId = 10)
+        val server = ChatMessage("rest-session-20", MessageRole.USER, "repeat", serverRowId = 20)
+        val reply = ChatMessage("rest-session-21", MessageRole.ASSISTANT, "done", serverRowId = 21)
+        val receipt = pending("send-1", "repeat", PendingSendState.UNKNOWN).copy(userRowId = 10)
+        val merged = mergeTranscriptWithLive(listOf(server, reply), listOf(local), preserveLiveIds = true)
+
+        assertEquals(
+            listOf(server.id, reply.id),
+            messagesWithoutUnconfirmedReceipts(merged, listOf(receipt)).map { it.id },
+        )
+        assertTrue(pendingSendIdsConfirmedByDurableAliases(merged, listOf(receipt)).isEmpty())
+    }
+
+    @Test
+    fun queuedBubblesAndConfirmedAliasesStayInTheTranscript() {
+        val queued = ChatMessage("queued", MessageRole.USER, "later")
+        val confirmed = ChatMessage("confirmed", MessageRole.USER, "delivered", restId = "rest-session-10")
+        val pending = listOf(pending("queued", "later", PendingSendState.QUEUED), pending("confirmed", "delivered"))
+
+        assertEquals(listOf(queued, confirmed), messagesWithoutUnconfirmedReceipts(listOf(queued, confirmed), pending))
+    }
+
+    @Test
+    fun normalSendingAndAcceptedPromptsAreNotRecoveryItems() {
+        val sends = PendingSendState.entries.map { pending(it.name, "prompt", it) }
+
+        assertEquals(
+            setOf(
+                PendingSendState.QUEUED,
+                PendingSendState.PARKED,
+                PendingSendState.UNKNOWN,
+                PendingSendState.REJECTED,
+            ),
+            sends.filter { it.needsRecovery }.map { it.state }.toSet(),
+        )
+        val live = sends.filterNot { it.needsRecovery }.map { ChatMessage(it.id, MessageRole.USER, it.text) }
+        assertEquals(live, messagesWithoutUnconfirmedReceipts(live, sends))
+    }
+
+    @Test
+    fun acknowledgementPersistsButDismissalRequiresExactReleasedUnknownSnapshot() {
+        val store = ChatSendStore()
+        val unknown = pending("unknown", "uncertain", PendingSendState.UNKNOWN)
+        val queued = pending("queued", "later", PendingSendState.QUEUED)
+        store.put(unknown)
+        store.put(queued)
+        assertEquals(false, store.dismissReleasedUnknown(unknown))
+        store.update(unknown.id) { it.copy(userOrderingReleased = true) }
+        val acknowledged = store.all().first()
+        assertEquals(PendingSendState.UNKNOWN, acknowledged.state)
+        assertEquals(false, store.dismissReleasedUnknown(unknown))
+        assertEquals(false, store.dismissReleasedUnknown(acknowledged.copy(attempts = 1)))
+        assertEquals(true, store.dismissReleasedUnknown(acknowledged))
+        assertEquals(false, store.dismissReleasedUnknown(acknowledged))
+        assertEquals(listOf(queued), store.all())
+    }
+
+    @Test
+    fun promotionClearsAcknowledgementBeforeRetry() {
+        val store = ChatSendStore()
+        store.put(pending("unknown", "uncertain", PendingSendState.UNKNOWN).copy(userOrderingReleased = true))
+        store.promote("unknown")
+        assertEquals(PendingSendState.QUEUED, store.all().single().state)
+        assertEquals(false, store.all().single().userOrderingReleased)
     }
 }

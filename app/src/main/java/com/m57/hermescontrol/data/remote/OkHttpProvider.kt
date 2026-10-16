@@ -32,6 +32,7 @@ object OkHttpProvider {
     val base: OkHttpClient by lazy {
         OkHttpClient
             .Builder()
+            .let(ClientCertificates::configure)
             .cookieJar(resolveCookieJar())
             .addNetworkInterceptor(ServerHeadersInterceptor())
             .connectionPool(connectionPool)
@@ -47,6 +48,8 @@ object OkHttpProvider {
         base
             .newBuilder()
             .cookieJar(resolveCookieJar())
+            // A handshake that has not completed in 10 s is dead; give up and let the backoff retry.
+            .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .pingInterval(30, TimeUnit.SECONDS)
             .addInterceptor(ServerHeadersInterceptor())
