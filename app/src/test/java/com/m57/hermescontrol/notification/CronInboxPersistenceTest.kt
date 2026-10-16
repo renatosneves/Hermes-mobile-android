@@ -24,6 +24,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import retrofit2.Response
+import java.security.MessageDigest
 
 class CronInboxPersistenceTest {
     private val context = mockk<Context>()
@@ -125,5 +126,38 @@ class CronInboxPersistenceTest {
             coEvery { api.getCronInbox(1, any()) } returns Response.success(CronInboxResponse("epoch", 2))
             CronInboxSync.syncOnce(context)
             assertEquals(2L, values.values.filterIsInstance<Long>().single())
+        }
+
+    @Test
+    fun postedReceiptSurvivesCrashBeforePageCursorCommit() =
+        runBlocking {
+            every { AuthManager.isNotifyNewBotMessages() } returns true
+            val key =
+                MessageDigest
+                    .getInstance("SHA-256")
+                    .digest("http://gateway:18788".toByteArray())
+                    .joinToString("") { "%02x".format(it) }
+            values["$key.posted"] = setOf("builder|receipt")
+            // NotificationManager is deliberately unstubbed: reposting would fail this test.
+            CronInboxSync.syncOnce(context)
+            assertEquals(1L, values["$key.cursor"])
+            assertTrue(CronInboxSync.wasDelivered(context, "builder", "builder-chat", 12, delivery.created))
+        }
+
+    @Test
+    fun changedDatabaseEpochRefetchesFromTheBeginning() =
+        runBlocking {
+            val key =
+                MessageDigest
+                    .getInstance("SHA-256")
+                    .digest("http://gateway:18788".toByteArray())
+                    .joinToString("") { "%02x".format(it) }
+            values["$key.cursor"] = 999L
+            values["$key.epoch"] = "previous-database"
+            coEvery { api.getCronInbox(999, any()) } returns Response.success(CronInboxResponse("epoch", 1))
+            CronInboxSync.syncOnce(context)
+            coVerify(exactly = 1) { api.getCronInbox(999, any()) }
+            coVerify(exactly = 1) { api.getCronInbox(0, any()) }
+            assertEquals(1L, values["$key.cursor"])
         }
 }
