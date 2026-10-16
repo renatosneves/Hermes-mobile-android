@@ -65,6 +65,7 @@ import com.m57.hermescontrol.data.ws.contract.TypedRpcSender
 import com.m57.hermescontrol.data.ws.toAny
 import com.m57.hermescontrol.data.ws.toJsonElement
 import com.m57.hermescontrol.diagnostics.ChatTrace
+import com.m57.hermescontrol.notification.CronInboxSync
 import com.m57.hermescontrol.notification.ReplyNotificationTracker
 import com.m57.hermescontrol.notification.captureTurnBoundary
 import com.m57.hermescontrol.notification.correlationScopeId
@@ -869,6 +870,11 @@ class ChatViewModel(
     var initialSessionId: String? = null
 
     init {
+        viewModelScope.launch {
+            CronInboxSync.changedSessions.collect { sessionId ->
+                if (isCurrentSession(sessionId)) requestCronRefresh()
+            }
+        }
         refreshSettings()
         refreshMaxToolCallsPerTurn()
 

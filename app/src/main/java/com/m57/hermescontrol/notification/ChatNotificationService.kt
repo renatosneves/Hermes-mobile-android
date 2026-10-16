@@ -248,6 +248,7 @@ class ChatNotificationService : Service() {
                             if (!isAppInForeground.get()) {
                                 when (event) {
                                     is WsEvent.MessageComplete -> {
+                                        if (event.rawPayload?.get("source") == "cron") return@launch
                                         when (
                                             val route =
                                                 messageCompleteRoute(

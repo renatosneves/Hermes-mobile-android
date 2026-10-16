@@ -24,6 +24,7 @@ import com.m57.hermescontrol.data.remote.ApiClient
 import com.m57.hermescontrol.data.remote.NetworkResult
 import com.m57.hermescontrol.data.remote.safeApiCall
 import com.m57.hermescontrol.ui.bots.BotsPresentation
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -58,9 +59,13 @@ class NewMessageCheckJob : JobService() {
 
     override fun onStopJob(params: JobParameters): Boolean {
         running?.cancel()
-        scope.cancel()
         // The next period retries; no backoff-driven retry storm.
         return false
+    }
+
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
     }
 
     companion object {
@@ -121,6 +126,14 @@ class NewMessageCheckJob : JobService() {
             if (!AuthManager.isNotifyNewBotMessages()) return
             if (!AuthManager.isGatedMode() && AuthManager.getToken().isNullOrBlank()) return
 
+            try {
+                withTimeoutOrNull(REQUEST_TIMEOUT_MS) { CronInboxSync.syncOnce(context) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Keep the existing ordinary-message check usable if the inbox request fails.
+            }
+
             val roster =
                 withTimeoutOrNull(REQUEST_TIMEOUT_MS) {
                     safeApiCall(retries = 0) { ApiClient.hermesApi.getProfiles() }
@@ -155,6 +168,7 @@ class NewMessageCheckJob : JobService() {
             val latest = profile.canonical_session?.last_active ?: profile.last_session?.last_active
             var preview: String? = null
             var fromBot = false
+            var alreadyDelivered = false
             if (NewMessageDecider.hasNewActivity(lastSeen, backgroundedAt, latest)) {
                 val sessionId = sessionToRead(profile)
                 val page =
@@ -182,6 +196,14 @@ class NewMessageCheckJob : JobService() {
                                 ).isNotEmpty()
                     }
                 fromBot = newest?.role == "assistant"
+                alreadyDelivered =
+                    CronInboxSync.wasDelivered(
+                        context,
+                        profile.name,
+                        sessionId,
+                        newest?.id,
+                        newest?.timestampText?.toDoubleOrNull(),
+                    )
                 preview =
                     newest
                         ?.let {
@@ -191,7 +213,7 @@ class NewMessageCheckJob : JobService() {
                         }?.take(PREVIEW_MAX_CHARS)
                         ?.trimEnd()
             }
-            if (NewMessageDecider.decide(lastSeen, backgroundedAt, latest, fromBot)) {
+            if (!alreadyDelivered && NewMessageDecider.decide(lastSeen, backgroundedAt, latest, fromBot)) {
                 sessionToRead(profile)?.let { notify(context, profile, it, preview) }
             }
             NewMessageDecider.nextWatermark(lastSeen, latest)?.let {

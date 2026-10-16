@@ -17,6 +17,7 @@ import com.m57.hermescontrol.data.remote.NetworkMonitor
 import com.m57.hermescontrol.data.remote.OkHttpProvider
 import com.m57.hermescontrol.diagnostics.ChatTrace
 import com.m57.hermescontrol.diagnostics.FreezeReporter
+import com.m57.hermescontrol.notification.CronInboxSync
 import com.m57.hermescontrol.notification.NewMessageCheckJob
 import com.m57.hermescontrol.notification.TurnCorrelationTracker
 import com.m57.hermescontrol.ui.analytics.AnalyticsPreloader
@@ -50,6 +51,7 @@ class HermesControlApp :
         appScope.launch {
             AuthManager.initializationState.first { it == AuthManager.InitializationState.Ready }
             NewMessageCheckJob.sync(this@HermesControlApp)
+            CronInboxSync.start(this@HermesControlApp)
         }
         appScope.launch {
             AuthManager.initializationState.first { it == AuthManager.InitializationState.Ready }

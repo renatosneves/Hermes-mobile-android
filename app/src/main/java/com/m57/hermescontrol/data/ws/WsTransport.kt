@@ -504,6 +504,7 @@ internal class WsTransport(
             }
 
             is WsEvent.MessageComplete -> {
+                if (event.rawPayload?.get("source") == "cron") return
                 replyTracker.onTurnComplete(event.sessionId)
                 disconnectIfIdleInBackground()
             }

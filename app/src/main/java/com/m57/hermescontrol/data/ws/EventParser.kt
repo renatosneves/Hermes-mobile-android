@@ -98,7 +98,7 @@ object EventParser {
             }
 
             "message.start" -> {
-                WsEvent.MessageStart(sessionId)
+                if (payload?.get("source") == "cron") WsEvent.Unknown("cron-start") else WsEvent.MessageStart(sessionId)
             }
 
             "message.token", "message.delta" -> {
@@ -126,6 +126,7 @@ object EventParser {
                 val reasoning = payload?.get("reasoning") as? String
                 val completionId =
                     payload?.get("completion_id") as? String
+                        ?: payload?.get("message_id") as? String
                         ?: java.util.UUID
                             .randomUUID()
                             .toString()
